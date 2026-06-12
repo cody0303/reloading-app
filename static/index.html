@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Reloading Log</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --p:#1565C0;--pd:#1976D2;--pc:#DDEEFF;--op:#fff;
+  --bg:#ECF0F4;--sf:#fff;--sfv:#F0F4F8;--sf2:#E8EDF2;
+  --os:#1A1C1E;--osv:#44474E;--ol:#C4C7C5;--olv:#E2E3E7;
+  --err:#B3261E;--ok:#2E7D32;--okc:#E8F5E9;
+  --warn:#E65100;--warnc:#FFF3E0;
+  --s1:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);
+  --s2:0 3px 6px rgba(0,0,0,.12),0 2px 4px rgba(0,0,0,.08);
+  --s3:0 8px 24px rgba(0,0,0,.14);
+  --rsm:8px;--rmd:12px;--rlg:16px;--rxl:28px;
+  --nav:64px;
+}
+[data-theme=dark]{
+  --p:#90CAF9;--pd:#64B5F6;--pc:#0D2B4E;--op:#0D2B4E;
+  --bg:#111318;--sf:#1C1F26;--sfv:#252831;--sf2:#2C2F3A;
+  --os:#E2E2E9;--osv:#9A9DB0;--ol:#444750;--olv:#2E3140;
+  --err:#F28B82;--ok:#81C784;--okc:#1B3B1D;
+  --warn:#FFB74D;--warnc:#2D1F00;
+  --s1:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+  --s2:0 3px 6px rgba(0,0,0,.4);--s3:0 8px 24px rgba(0,0,0,.5);
+}
+body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-height:100vh;display:flex;flex-direction:column;transition:background .25s,color .25s}
+
+/* ── Nav ── */
+.nav{background:var(--sf);border-bottom:1px solid var(--olv);height:60px;display:flex;align-items:center;padding:0 8px;gap:4px;position:sticky;top:0;z-index:200;box-shadow:var(--s1)}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none;padding:0 8px;flex-shrink:0}
+.logo-icon{width:34px;height:34px;background:var(--p);border-radius:var(--rsm);display:flex;align-items:center;justify-content:center;color:var(--op)}
+.logo-icon .mi{font-size:18px}
+.logo-text{font-size:17px;font-weight:500;color:var(--os);white-space:nowrap}
+.nav-links{display:flex;gap:2px;margin-left:8px;flex:1}
+.nav-link{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--rsm);border:none;background:transparent;cursor:pointer;font-family:'Roboto',sans-serif;font-size:13px;font-weight:500;color:var(--osv);text-decoration:none;transition:background .15s,color .15s;white-space:nowrap}
+.nav-link .mi{font-size:18px}
+.nav-link:hover{background:var(--sfv);color:var(--os)}
+.nav-link.active{background:var(--pc);color:var(--p)}
+@media(max-width:600px){.nav-link span.lbl{display:none}}
+.nav-end{margin-left:auto;display:flex;gap:2px;align-items:center}
+.icon-btn{width:38px;height:38px;border-radius:50%;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--osv);transition:background .15s,color .15s}
+.icon-btn:hover{background:var(--sfv);color:var(--p)}
+.icon-btn .mi{font-size:22px}
+.stat-pill{font-size:12px;color:var(--osv);display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--sfv);border:1px solid var(--olv);border-radius:32px;white-space:nowrap}
+.stat-pill .mi{font-size:14px;color:var(--p)}
+.stat-pill strong{color:var(--p);font-weight:500}
+@media(max-width:700px){.stat-pill{display:none}}
+
+/* ── Pages ── */
+.page{display:none;flex-direction:column;flex:1}
+.page.active{display:flex}
+.page-header{padding:16px 16px 8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.page-title{font-size:22px;font-weight:400;flex:1}
+.page-actions{display:flex;gap:8px;align-items:center}
+
+/* ── Progress ── */
+.progress{height:3px;background:var(--pc);position:fixed;top:60px;left:0;right:0;z-index:300;display:none;overflow:hidden}
+.progress.show{display:block}
+.progress::after{content:'';display:block;height:100%;background:var(--p);width:30%;animation:prog 1.4s infinite cubic-bezier(.4,0,.2,1)}
+@keyframes prog{0%{transform:translateX(-200%) scaleX(.3)}50%{transform:translateX(100%) scaleX(1.2)}100%{transform:translateX(400%) scaleX(.3)}}
+
+/* ── Cards / Tables ── */
+.card{background:var(--sf);border-radius:var(--rlg);border:1px solid var(--olv);box-shadow:var(--s1);overflow:hidden}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{position:sticky;top:0;z-index:10;background:var(--sf)}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--osv);cursor:pointer;user-select:none;border-bottom:2px solid var(--olv);white-space:nowrap;transition:background .15s,color .15s}
+th:hover{background:var(--sfv);color:var(--p)}
+th.sorted{color:var(--p);background:var(--pc)}
+th .si{margin-left:3px;font-size:13px;vertical-align:-3px;opacity:.4}
+th.sorted .si{opacity:1}
+td{padding:10px 14px;border-bottom:1px solid var(--olv);color:var(--osv);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr{transition:background .1s}
+tbody tr:hover td{background:var(--sfv)}
+td.c-id{font-family:'Roboto Mono',monospace;font-size:11px;color:var(--ol)}
+td.c-num{font-family:'Roboto Mono',monospace}
+td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
+.no-data{display:none;flex-direction:column;align-items:center;justify-content:center;padding:60px 24px;gap:10px;color:var(--osv)}
+.no-data .mi{font-size:48px;opacity:.2;color:var(--p)}
+.no-data p{font-size:14px;opacity:.55}
+
+/* ── Filter bar ── */
+.filter-bar{background:var(--sf);border-bottom:1px solid var(--olv);padding:10px 12px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;box-shadow:var(--s1)}
+.fg{display:flex;flex-direction:column;gap:3px}
+.fl{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:1px;color:var(--osv)}
+.fi{height:34px;background:var(--sfv);border:1px solid var(--olv);border-radius:var(--rsm);padding:0 10px;font-family:'Roboto',sans-serif;font-size:13px;color:var(--os);outline:none;transition:border-color .2s,box-shadow .2s;min-width:80px}
+.fi:focus{border-color:var(--p);box-shadow:0 0 0 2px rgba(21,101,192,.15)}
+.fi::placeholder{color:var(--ol)}
+[data-theme=dark] .fi{background:var(--sf2)}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:var(--rxl);cursor:pointer;font-family:'Roboto',sans-serif;font-size:14px;font-weight:500;padding:9px 18px;transition:box-shadow .15s,background .15s;white-space:nowrap}
+.btn .mi{font-size:18px}
+.btn-filled{background:var(--p);color:var(--op);box-shadow:var(--s1)}
+.btn-filled:hover{box-shadow:var(--s2);background:var(--pd)}
+.btn-tonal{background:var(--sfv);color:var(--os)}
+.btn-tonal:hover{background:var(--sf2)}
+.btn-text{background:transparent;color:var(--p);padding:9px 12px}
+.btn-text:hover{background:rgba(21,101,192,.08)}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn-sm .mi{font-size:16px}
+.btn:disabled{opacity:.4;cursor:default;pointer-events:none}
+.btn-danger{background:transparent;color:var(--err);padding:6px 8px}
+.btn-danger:hover{background:rgba(179,38,30,.08)}
+
+/* ── FAB ── */
+.fab{position:fixed;bottom:20px;right:20px;z-index:100;background:var(--p);color:var(--op);border:none;border-radius:var(--rlg);height:52px;padding:0 18px;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:var(--s3);font-family:'Roboto',sans-serif;font-size:14px;font-weight:500;transition:box-shadow .2s,transform .15s}
+.fab:hover{box-shadow:0 10px 28px rgba(0,0,0,.2);transform:translateY(-1px)}
+.fab .mi{font-size:20px}
+
+/* ── Modal ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .22s;padding:16px}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--sf);border-radius:var(--rlg);box-shadow:var(--s3);width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;transform:translateY(16px) scale(.97);transition:transform .22s cubic-bezier(.05,.7,.1,1);overflow:hidden}
+.overlay.open .modal{transform:translateY(0) scale(1)}
+.modal-sm .modal{max-width:420px}
+.modal-lg .modal{max-width:680px}
+.mhdr{display:flex;align-items:center;padding:14px 18px 10px;border-bottom:1px solid var(--olv);gap:10px;flex-shrink:0}
+.mhdr-icon{color:var(--p)}
+.mhdr-icon .mi{font-size:22px}
+.mtitle{font-size:17px;font-weight:500;flex:1;color:var(--os)}
+.mbody{overflow-y:auto;padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mbody.single-col{grid-template-columns:1fr}
+@media(max-width:480px){.mbody{grid-template-columns:1fr}}
+.mfooter{display:flex;justify-content:flex-end;gap:8px;padding:10px 18px;border-top:1px solid var(--olv);flex-shrink:0}
+.f-full{grid-column:1/-1}
+.f-section{grid-column:1/-1;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:1px;color:var(--osv);padding-top:4px;border-top:1px solid var(--olv)}
+
+/* ── Form fields ── */
+.field{position:relative}
+.finput,.fselect{width:100%;height:50px;background:var(--sfv);border:1px solid var(--ol);border-radius:var(--rsm);padding:20px 12px 6px;font-family:'Roboto',sans-serif;font-size:14px;color:var(--os);outline:none;transition:border-color .2s,box-shadow .2s;appearance:none}
+[data-theme=dark] .finput,[data-theme=dark] .fselect{background:var(--sf2)}
+.finput:focus,.fselect:focus{border-color:var(--p);box-shadow:0 0 0 2px rgba(21,101,192,.18)}
+.flabel{position:absolute;left:12px;top:8px;font-size:11px;font-weight:500;color:var(--osv);letter-spacing:.3px;pointer-events:none;transition:color .2s}
+.finput:focus~.flabel,.fselect:focus~.flabel{color:var(--p)}
+.finput::placeholder{color:transparent}
+.ftextarea{width:100%;min-height:70px;background:var(--sfv);border:1px solid var(--ol);border-radius:var(--rsm);padding:24px 12px 8px;font-family:'Roboto',sans-serif;font-size:14px;color:var(--os);outline:none;resize:vertical;transition:border-color .2s}
+[data-theme=dark] .ftextarea{background:var(--sf2)}
+.ftextarea:focus{border-color:var(--p)}
+
+/* ── Chips ── */
+.chip{display:inline-flex;align-items:center;gap:3px;border-radius:32px;padding:2px 9px;font-size:11px;font-weight:500}
+.chip-yes{background:var(--okc);color:var(--ok)}
+.chip-no{background:var(--sfv);color:var(--osv)}
+.chip-warn{background:var(--warnc);color:var(--warn)}
+.chip .mi{font-size:12px}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:var(--rsm);padding:3px 8px;font-size:12px;font-weight:500;cursor:pointer;border:none;font-family:'Roboto',sans-serif;transition:background .15s}
+.badge-blue{background:var(--pc);color:var(--p)}
+.badge-blue:hover{background:rgba(21,101,192,.2)}
+.badge-green{background:var(--okc);color:var(--ok)}
+
+/* ── Snackbar ── */
+.snack{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#313033;color:#E6E1E5;border-radius:var(--rsm);padding:12px 16px;font-size:14px;display:flex;align-items:center;gap:8px;min-width:240px;max-width:90vw;box-shadow:var(--s3);z-index:9999;opacity:0;transition:transform .25s cubic-bezier(.05,.7,.1,1),opacity .25s;pointer-events:none}
+.snack.show{transform:translateX(-50%) translateY(0);opacity:1}
+.snack .mi{font-size:18px}
+.snack.ok .mi{color:#81C784}
+.snack.err .mi{color:#F28B82}
+.snack.warn .mi{color:#FFB74D}
+
+/* ── Alert banner ── */
+.alert{padding:10px 14px;border-radius:var(--rsm);font-size:13px;display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
+.alert .mi{font-size:18px;flex-shrink:0;margin-top:1px}
+.alert-warn{background:var(--warnc);color:var(--warn)}
+.alert-info{background:var(--pc);color:var(--p)}
+
+/* ── Settings page ── */
+.settings-wrap{padding:16px;max-width:680px;display:flex;flex-direction:column;gap:16px}
+.settings-card{background:var(--sf);border-radius:var(--rlg);border:1px solid var(--olv);padding:20px}
+.settings-card h3{font-size:14px;font-weight:500;color:var(--os);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.settings-card h3 .mi{color:var(--p);font-size:20px}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.settings-grid{grid-template-columns:1fr}}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--olv);gap:12px}
+.toggle-row:last-child{border-bottom:none}
+.toggle-label{font-size:14px;color:var(--os)}
+.toggle-sub{font-size:12px;color:var(--osv);margin-top:2px}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--ol);border-radius:12px;transition:background .2s;cursor:pointer}
+.toggle input:checked~.toggle-track{background:var(--p)}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:white;border-radius:50%;transition:transform .2s;pointer-events:none}
+.toggle input:checked~.toggle-track~.toggle-thumb{transform:translateX(20px)}
+.unit-toggle{display:flex;border:1px solid var(--ol);border-radius:var(--rsm);overflow:hidden}
+.unit-toggle button{flex:1;padding:6px 12px;border:none;background:transparent;cursor:pointer;font-family:'Roboto',sans-serif;font-size:13px;color:var(--osv);transition:background .15s,color .15s}
+.unit-toggle button.active{background:var(--p);color:white}
+
+/* ── Inventory page ── */
+.inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:0 12px 80px}
+.inv-card{background:var(--sf);border-radius:var(--rlg);border:1px solid var(--olv);box-shadow:var(--s1);overflow:hidden}
+.inv-card-header{padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--olv)}
+.inv-cat-icon{width:32px;height:32px;border-radius:var(--rsm);display:flex;align-items:center;justify-content:center}
+.inv-cat-icon .mi{font-size:18px}
+.cat-bullets{background:#E3F2FD;color:#1565C0}
+.cat-powder{background:#FFF3E0;color:#E65100}
+.cat-primers{background:#F3E5F5;color:#6A1B9A}
+.cat-brass{background:#E8F5E9;color:#2E7D32}
+[data-theme=dark] .cat-bullets{background:#0D2B4E;color:#90CAF9}
+[data-theme=dark] .cat-powder{background:#2D1F00;color:#FFB74D}
+[data-theme=dark] .cat-primers{background:#2D0047;color:#CE93D8}
+[data-theme=dark] .cat-brass{background:#1B3B1D;color:#81C784}
+.inv-card-title{font-size:14px;font-weight:500;flex:1}
+.inv-card-qty{font-size:13px;font-family:'Roboto Mono',monospace;color:var(--p);font-weight:500}
+.inv-card-body{padding:8px 14px 12px;font-size:13px;color:var(--osv)}
+.inv-row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--olv)}
+.inv-row:last-child{border-bottom:none}
+.inv-row .key{color:var(--osv)}
+.inv-row .val{color:var(--os);font-weight:500}
+.qty-low{color:var(--warn) !important}
+
+/* ── Performance page ── */
+.perf-meta{font-size:12px;color:var(--osv);display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
+.perf-meta span{display:flex;align-items:center;gap:4px}
+.perf-meta .mi{font-size:14px}
+
+/* ── Responsive ── */
+@media(max-width:700px){
+  .col-hide{display:none}
+  .card,.table-wrap{margin:8px}
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="logo">
+    <div class="logo-icon"><span class="mi material-icons-round">my_location</span></div>
+    <span class="logo-text">Reloading Log</span>
+  </div>
+  <div class="nav-links">
+    <button class="nav-link active" data-page="loads" onclick="navigate('loads')">
+      <span class="mi material-icons-round">inventory_2</span><span class="lbl">Loads</span>
+    </button>
+    <button class="nav-link" data-page="inventory" onclick="navigate('inventory')">
+      <span class="mi material-icons-round">warehouse</span><span class="lbl">Inventory</span>
+    </button>
+    <button class="nav-link" data-page="firearms" onclick="navigate('firearms')">
+      <span class="mi material-icons-round">settings</span><span class="lbl">Firearms</span>
+    </button>
+    <button class="nav-link" data-page="performance" onclick="navigate('performance')">
+      <span class="mi material-icons-round">speed</span><span class="lbl">Performance</span>
+    </button>
+    <button class="nav-link" data-page="settings" onclick="navigate('settings')">
+      <span class="mi material-icons-round">tune</span><span class="lbl">Settings</span>
+    </button>
+  </div>
+  <div class="nav-end">
+    <div class="stat-pill"><span class="mi material-icons-round">inventory_2</span><strong id="sn-loads">—</strong></div>
+    <div class="stat-pill"><span class="mi material-icons-round">warehouse</span><strong id="sn-inv">—</strong></div>
+    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme"><span class="mi material-icons-round" id="theme-icon">dark_mode</span></button>
+    <button class="icon-btn" onclick="exportCSV()" title="Export CSV"><span class="mi material-icons-round">download</span></button>
+    <label class="icon-btn" title="Import CSV" style="cursor:pointer">
+      <span class="mi material-icons-round">upload</span>
+      <input type="file" accept=".csv" style="display:none" onchange="importCSV(event)">
+    </label>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: LOADS                                              -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-loads">
+  <div class="filter-bar">
+    <div class="fg" style="flex:1;min-width:140px"><div class="fl">Search</div><input class="fi" id="l-search" placeholder="Search…" oninput="loadsSearch()"></div>
+    <div class="fg" style="min-width:90px"><div class="fl">Cartridge</div><input class="fi" id="l-cart" placeholder="Any" oninput="loadsSearch()"></div>
+    <div class="fg" style="min-width:90px"><div class="fl">Powder</div><input class="fi" id="l-pow" placeholder="Any" oninput="loadsSearch()"></div>
+    <div class="fg" style="min-width:80px"><div class="fl">Blt Wt</div><input class="fi" id="l-bwt" placeholder="Any" oninput="loadsSearch()"></div>
+    <div class="fg" style="min-width:85px"><div class="fl">Annealed</div>
+      <select class="fi" id="l-ann" onchange="loadsSearch()">
+        <option value="">Any</option><option>Yes</option><option>No</option>
+      </select>
+    </div>
+    <button class="btn btn-text btn-sm" onclick="clearLoadsFilter()"><span class="mi material-icons-round">filter_alt_off</span>Clear</button>
+  </div>
+  <div style="margin:12px;padding-bottom:80px">
+    <div class="card table-wrap">
+      <table><thead><tr id="loads-head"></tr></thead><tbody id="loads-body"></tbody></table>
+      <div class="no-data" id="loads-empty"><span class="mi material-icons-round">inventory_2</span><p>No loads found</p></div>
+    </div>
+  </div>
+  <button class="fab" onclick="openLoadModal()"><span class="mi material-icons-round">add</span>New Load</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: INVENTORY                                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-inventory">
+  <div class="page-header">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:26px">warehouse</span>
+    <div class="page-title">Inventory</div>
+    <div class="page-actions">
+      <button class="btn btn-filled btn-sm" onclick="openInvModal()"><span class="mi material-icons-round">add</span>Add Item</button>
+    </div>
+  </div>
+  <div class="inv-grid" id="inv-grid"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: FIREARMS                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-firearms">
+  <div class="page-header">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:26px">settings</span>
+    <div class="page-title">Firearms</div>
+    <div class="page-actions">
+      <button class="btn btn-filled btn-sm" onclick="openFirearmModal()"><span class="mi material-icons-round">add</span>Add Firearm</button>
+    </div>
+  </div>
+  <div style="margin:0 12px 80px">
+    <div class="card table-wrap">
+      <table>
+        <thead><tr>
+          <th>Name</th><th>Caliber</th><th>Barrel Length</th><th>Twist Rate</th><th class="col-hide">Manufacturer</th><th></th>
+        </tr></thead>
+        <tbody id="firearms-body"></tbody>
+      </table>
+      <div class="no-data" id="firearms-empty"><span class="mi material-icons-round">settings</span><p>No firearms added yet</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: PERFORMANCE                                        -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-performance">
+  <div class="filter-bar">
+    <div class="fg" style="min-width:160px"><div class="fl">Lot Number</div><input class="fi" id="p-lot" placeholder="Filter by lot…" oninput="perfSearch()"></div>
+    <div class="fg" style="min-width:120px"><div class="fl">Firearm</div>
+      <select class="fi" id="p-gun" onchange="perfSearch()"><option value="">Any</option></select>
+    </div>
+    <button class="btn btn-text btn-sm" onclick="clearPerfFilter()"><span class="mi material-icons-round">filter_alt_off</span>Clear</button>
+  </div>
+  <div style="margin:12px;padding-bottom:80px">
+    <div class="card table-wrap">
+      <table>
+        <thead><tr>
+          <th onclick="perfSort('lot_number')">Lot #<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('firearm_name')">Firearm<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('date')" class="col-hide">Date<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('distance')">Distance<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('avg_velocity')">Avg Vel<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('std_dev')">SD<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('extreme_spread')" class="col-hide">ES<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('group_size')">Group<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('num_shots')" class="col-hide">Shots<span class="si material-icons-round">unfold_more</span></th>
+          <th></th>
+        </tr></thead>
+        <tbody id="perf-body"></tbody>
+      </table>
+      <div class="no-data" id="perf-empty"><span class="mi material-icons-round">speed</span><p>No performance data yet</p></div>
+    </div>
+  </div>
+  <button class="fab" onclick="openPerfModal()"><span class="mi material-icons-round">add</span>Add Session</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: SETTINGS                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-settings">
+  <div class="page-header">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:26px">tune</span>
+    <div class="page-title">Settings</div>
+    <div class="page-actions">
+      <button class="btn btn-filled btn-sm" onclick="saveSettings()"><span class="mi material-icons-round">save</span>Save</button>
+    </div>
+  </div>
+  <div class="settings-wrap">
+
+    <!-- Label settings -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">label</span>Label Generation</h3>
+      <div class="settings-grid">
+        <div class="field">
+          <input class="finput" id="s-label-name" placeholder=" ">
+          <label class="flabel">Your Name (static on every label)</label>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="fl">Label Units</div>
+          <div class="unit-toggle" id="label-units-toggle">
+            <button onclick="setLabelUnit('mm')" id="unit-mm" class="active">mm</button>
+            <button onclick="setLabelUnit('in')" id="unit-in">in</button>
+          </div>
+        </div>
+        <div class="field">
+          <input class="finput" type="number" id="s-label-w" placeholder=" " step="0.1">
+          <label class="flabel" id="s-label-w-lbl">Label Width (mm)</label>
+        </div>
+        <div class="field">
+          <input class="finput" type="number" id="s-label-h" placeholder=" " step="0.1">
+          <label class="flabel" id="s-label-h-lbl">Label Height (mm)</label>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="fl" style="margin-bottom:8px">Label Sections (show / hide)</div>
+        <div id="label-toggles"></div>
+      </div>
+    </div>
+
+    <!-- Inventory settings -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">warehouse</span>Inventory</h3>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Auto-decrement on new load</div>
+          <div class="toggle-sub">Automatically deduct components when a load batch is created</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="s-auto-dec" checked>
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <!-- App settings -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">palette</span>Appearance</h3>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Dark Mode</div>
+          <div class="toggle-sub">Switch between light and dark theme</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="s-dark" onchange="toggleTheme()">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  MODALS                                                   -->
+<!-- ══════════════════════════════════════════════════════════ -->
+
+<!-- Load Modal -->
+<div class="overlay" id="load-overlay" onclick="overlayClick(event,'load-overlay')">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round" id="load-modal-icon">add_circle</span></div>
+    <div class="mtitle" id="load-modal-title">New Load</div>
+    <button class="icon-btn" onclick="closeModal('load-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody" id="load-modal-body">
+    <div class="field f-full">
+      <input class="finput" id="m-lot_number" placeholder=" " readonly style="background:var(--sfv);cursor:default">
+      <label class="flabel">Lot Number (auto-generated)</label>
+    </div>
+    <div class="field"><input class="finput" type="date" id="m-date" placeholder=" "><label class="flabel">Date</label></div>
+    <div class="field"><input class="finput" id="m-cartridge" placeholder=" " list="dl-cartridge"><label class="flabel">Cartridge</label><datalist id="dl-cartridge"></datalist></div>
+    <div class="field"><input class="finput" id="m-rounds_made" type="number" placeholder=" "><label class="flabel">Rounds Made</label></div>
+    <div class="field"><input class="finput" id="m-bullet_manufacturer" placeholder=" " list="dl-bm"><label class="flabel">Bullet Manufacturer</label><datalist id="dl-bm"></datalist></div>
+    <div class="field"><input class="finput" id="m-bullet_type" placeholder=" " list="dl-bt"><label class="flabel">Bullet Type</label><datalist id="dl-bt"></datalist></div>
+    <div class="field"><input class="finput" type="number" step=".1" id="m-bullet_weight" placeholder=" "><label class="flabel">Bullet Weight (gr)</label></div>
+    <div class="field"><input class="finput" id="m-case_type" placeholder=" " list="dl-case"><label class="flabel">Case Type</label><datalist id="dl-case"></datalist></div>
+    <div class="field"><input class="finput" id="m-powder_type" placeholder=" " list="dl-pow"><label class="flabel">Powder Type</label><datalist id="dl-pow"></datalist></div>
+    <div class="field"><input class="finput" type="number" step=".01" id="m-powder_weight" placeholder=" "><label class="flabel">Powder Charge (gr)</label></div>
+    <div class="field"><input class="finput" type="number" step=".001" id="m-cartridge_length" placeholder=" "><label class="flabel">COAL</label></div>
+    <div class="field"><input class="finput" type="number" step=".001" id="m-brass_length" placeholder=" "><label class="flabel">Brass Length</label></div>
+    <div class="field">
+      <select class="fselect" id="m-annealed"><option value="">— select —</option><option>Yes</option><option>No</option></select>
+      <label class="flabel">Annealed</label>
+    </div>
+    <div class="field"><input class="finput" id="m-primer" placeholder=" " list="dl-primer"><label class="flabel">Primer</label><datalist id="dl-primer"></datalist></div>
+    <div class="field"><input class="finput" type="number" id="m-number_of_loads" placeholder=" "><label class="flabel">Times Brass Fired</label></div>
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-tonal" onclick="closeModal('load-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="load-save-btn" onclick="saveLoad()">
+      <span class="mi material-icons-round" id="load-save-icon">add</span>
+      <span id="load-save-text">Add Load</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- Inventory Modal -->
+<div class="overlay modal-sm" id="inv-overlay" onclick="overlayClick(event,'inv-overlay')">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">warehouse</span></div>
+    <div class="mtitle" id="inv-modal-title">Add Inventory Item</div>
+    <button class="icon-btn" onclick="closeModal('inv-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody" id="inv-modal-body">
+    <div class="field f-full">
+      <select class="fselect" id="inv-category" onchange="onInvCategoryChange()">
+        <option value="">— select category —</option>
+        <option>Bullets</option><option>Brass/Cases</option><option>Primers</option><option>Powder</option>
+      </select>
+      <label class="flabel">Category</label>
+    </div>
+    <div class="field f-full"><input class="finput" id="inv-name" placeholder=" "><label class="flabel">Name / Description</label></div>
+    <div class="field f-full"><input class="finput" id="inv-brand" placeholder=" "><label class="flabel">Brand / Manufacturer</label></div>
+
+    <!-- Bullets fields -->
+    <div id="inv-fields-bullets" style="display:none;grid-column:1/-1;display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><input class="finput" id="inv-caliber" placeholder=" "><label class="flabel">Caliber</label></div>
+        <div class="field"><input class="finput" type="number" step=".1" id="inv-weight" placeholder=" "><label class="flabel">Weight (gr)</label></div>
+      </div>
+    </div>
+
+    <!-- Brass/Cases fields -->
+    <div id="inv-fields-brass" style="display:none;grid-column:1/-1">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><input class="finput" id="inv-brass-caliber" placeholder=" "><label class="flabel">Caliber</label></div>
+        <div class="field">
+          <select class="fselect" id="inv-brass-condition">
+            <option value="">— condition —</option>
+            <option value="New">New</option>
+            <option value="Once Fired">Once Fired</option>
+            <option value="Mixed">Mixed</option>
+          </select>
+          <label class="flabel">Condition</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Primers fields -->
+    <div id="inv-fields-primers" style="display:none;grid-column:1/-1">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <select class="fselect" id="inv-primer-size">
+            <option value="">— size —</option>
+            <option value="Large">Large</option>
+            <option value="Small">Small</option>
+          </select>
+          <label class="flabel">Size</label>
+        </div>
+        <div class="field">
+          <select class="fselect" id="inv-primer-type">
+            <option value="">— type —</option>
+            <option value="Rifle">Rifle</option>
+            <option value="Pistol">Pistol</option>
+          </select>
+          <label class="flabel">Type</label>
+        </div>
+        <div class="field">
+          <select class="fselect" id="inv-primer-magnum">
+            <option value="No">Standard</option>
+            <option value="Yes">Magnum</option>
+          </select>
+          <label class="flabel">Magnum?</label>
+        </div>
+        <div class="field">
+          <input class="finput" id="inv-primer-mil" placeholder=" ">
+          <label class="flabel">Mil-spec / Match grade</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Powder fields -->
+    <div id="inv-fields-powder" style="display:none;grid-column:1/-1">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <select class="fselect" id="inv-powder-type">
+            <option value="">— type —</option>
+            <option value="Ball">Ball / Spherical</option>
+            <option value="Extruded">Extruded / Stick</option>
+            <option value="Flake">Flake</option>
+          </select>
+          <label class="flabel">Powder Type</label>
+        </div>
+        <div class="field">
+          <select class="fselect" id="inv-powder-use">
+            <option value="">— primary use —</option>
+            <option value="Rifle">Rifle</option>
+            <option value="Pistol">Pistol</option>
+            <option value="Shotgun">Shotgun</option>
+          </select>
+          <label class="flabel">Primary Use</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quantity & unit (always shown) -->
+    <div class="field"><input class="finput" type="number" step=".01" id="inv-quantity" placeholder=" "><label class="flabel">Quantity</label></div>
+    <div class="field">
+      <select class="fselect" id="inv-unit">
+        <option>count</option><option>lb</option><option>oz</option><option>g</option>
+      </select>
+      <label class="flabel">Unit</label>
+    </div>
+
+    <div class="field f-full"><textarea class="ftextarea" id="inv-notes" placeholder="Notes…"></textarea></div>
+
+    <!-- Hidden: stores serialized extra fields -->
+    <input type="hidden" id="inv-caliber-proxy">
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-tonal" onclick="closeModal('inv-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="inv-save-btn" onclick="saveInventory()">
+      <span class="mi material-icons-round">add</span>
+      <span id="inv-save-text">Add Item</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- Firearm Modal -->
+<div class="overlay modal-sm" id="firearm-overlay" onclick="overlayClick(event,'firearm-overlay')">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">settings</span></div>
+    <div class="mtitle" id="firearm-modal-title">Add Firearm</div>
+    <button class="icon-btn" onclick="closeModal('firearm-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody">
+    <div class="field f-full"><input class="finput" id="fa-name" placeholder=" "><label class="flabel">Name / Description</label></div>
+    <div class="field"><input class="finput" id="fa-caliber" placeholder=" "><label class="flabel">Caliber / Chambering</label></div>
+    <div class="field"><input class="finput" id="fa-manufacturer" placeholder=" "><label class="flabel">Manufacturer</label></div>
+    <div class="field"><input class="finput" type="number" step=".1" id="fa-barrel" placeholder=" "><label class="flabel">Barrel Length</label></div>
+    <div class="field">
+      <select class="fselect" id="fa-barrel-unit"><option value="in">inches</option><option value="mm">mm</option></select>
+      <label class="flabel">Barrel Unit</label>
+    </div>
+    <div class="field f-full"><input class="finput" id="fa-twist" placeholder=" e.g. 1:10"><label class="flabel">Twist Rate</label></div>
+    <div class="field f-full"><textarea class="ftextarea" id="fa-notes" placeholder="Notes…"></textarea></div>
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-tonal" onclick="closeModal('firearm-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="fa-save-btn" onclick="saveFirearm()">
+      <span class="mi material-icons-round">add</span><span id="fa-save-text">Add Firearm</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- Performance Modal -->
+<div class="overlay modal-lg" id="perf-overlay" onclick="overlayClick(event,'perf-overlay')">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">speed</span></div>
+    <div class="mtitle" id="perf-modal-title">Add Performance Session</div>
+    <button class="icon-btn" onclick="closeModal('perf-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody">
+    <div class="field"><input class="finput" id="pf-lot" placeholder=" " list="dl-perf-lot"><label class="flabel">Lot Number</label><datalist id="dl-perf-lot"></datalist></div>
+    <div class="field">
+      <select class="fselect" id="pf-firearm"><option value="">— select firearm —</option></select>
+      <label class="flabel">Firearm</label>
+    </div>
+    <div class="field"><input class="finput" type="date" id="pf-date" placeholder=" "><label class="flabel">Date</label></div>
+    <div class="field"><input class="finput" type="number" id="pf-shots" placeholder=" "><label class="flabel">Number of Shots</label></div>
+    <div class="f-section">Distance</div>
+    <div class="field"><input class="finput" type="number" step=".1" id="pf-dist" placeholder=" "><label class="flabel">Distance</label></div>
+    <div class="field">
+      <select class="fselect" id="pf-dist-unit"><option value="yd">yards</option><option value="m">meters</option></select>
+      <label class="flabel">Unit</label>
+    </div>
+    <div class="f-section">Velocity (fps)</div>
+    <div class="field"><input class="finput" type="number" step=".1" id="pf-vel" placeholder=" "><label class="flabel">Average Velocity</label></div>
+    <div class="field"><input class="finput" type="number" step=".1" id="pf-sd" placeholder=" "><label class="flabel">Std Deviation</label></div>
+    <div class="field f-full"><input class="finput" type="number" step=".1" id="pf-es" placeholder=" "><label class="flabel">Extreme Spread</label></div>
+    <div class="f-section">Group Size</div>
+    <div class="field"><input class="finput" type="number" step=".001" id="pf-group" placeholder=" "><label class="flabel">Group Size</label></div>
+    <div class="field">
+      <select class="fselect" id="pf-group-unit"><option value="MOA">MOA</option><option value="Mil">Mil</option></select>
+      <label class="flabel">Unit</label>
+    </div>
+    <div class="field f-full"><textarea class="ftextarea" id="pf-notes" placeholder="Notes…"></textarea></div>
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-tonal" onclick="closeModal('perf-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="pf-save-btn" onclick="savePerformance()">
+      <span class="mi material-icons-round">add</span><span id="pf-save-text">Add Session</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- Add-to-Inventory prompt modal -->
+<div class="overlay modal-sm" id="inv-prompt-overlay">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round" style="color:var(--warn)">warning</span></div>
+    <div class="mtitle" id="inv-prompt-title">Components Not in Inventory</div>
+    <button class="icon-btn" onclick="skipAllMissing()"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody single-col" id="inv-prompt-body"></div>
+  <div class="mfooter" style="justify-content:space-between;align-items:center">
+    <span id="inv-prompt-counter" style="font-size:12px;color:var(--osv)"></span>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-tonal" onclick="skipOneMissing()">Skip this one</button>
+      <button class="btn btn-tonal" onclick="skipAllMissing()">Skip all</button>
+      <button class="btn btn-filled" id="inv-prompt-add-btn" onclick="addMissingToInventory()">
+        <span class="mi material-icons-round">add</span>Add to Inventory
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Snackbar -->
+<div class="snack" id="snack"><span class="mi material-icons-round" id="snack-icon">check_circle</span><span id="snack-msg"></span></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════
+let loadsSort={col:'id',dir:'desc'}, perfSort_={col:'id',dir:'desc'};
+let loadEditId=null, invEditId=null, firearmEditId=null, perfEditId=null;
+let missingComponents=[], allFirearms=[], allLoads=[];
+let acCache={}, settingsCache={};
+let loadsDebounce, perfDebounce;
+
+// ══════════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════════
+function navigate(page) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(l=>l.classList.toggle('active',l.dataset.page===page));
+  document.getElementById('page-'+page).classList.add('active');
+  if(page==='loads')       fetchLoads();
+  if(page==='inventory')   fetchInventory();
+  if(page==='firearms')    fetchFirearms();
+  if(page==='performance') fetchPerformance();
+  if(page==='settings')    loadSettings();
+}
+
+// ══════════════════════════════════════════════════════════════
+// API
+// ══════════════════════════════════════════════════════════════
+async function api(method,path,body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body) opts.body=JSON.stringify(body);
+  const r=await fetch(path,opts);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function setLoading(on){document.getElementById('progress').classList.toggle('show',on)}
+
+// ══════════════════════════════════════════════════════════════
+// STATS
+// ══════════════════════════════════════════════════════════════
+async function fetchStats(){
+  try{
+    const s=await api('GET','/api/stats');
+    document.getElementById('sn-loads').textContent=s.total;
+    document.getElementById('sn-inv').textContent=s.inventory;
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════════
+// LOADS PAGE
+// ══════════════════════════════════════════════════════════════
+const LOAD_COLS=[
+  {key:'id',label:'#',type:'id'},
+  {key:'lot_number',label:'Lot #',type:'text'},
+  {key:'date',label:'Date',type:'text'},
+  {key:'cartridge',label:'Cartridge',type:'text'},
+  {key:'rounds_made',label:'Rounds',type:'num'},
+  {key:'bullet_type',label:'Bullet',type:'text',hide:true},
+  {key:'bullet_weight',label:'Blt Wt',type:'num',hide:true},
+  {key:'powder_type',label:'Powder',type:'text'},
+  {key:'powder_weight',label:'Charge',type:'num'},
+  {key:'cartridge_length',label:'COAL',type:'num',hide:true},
+  {key:'primer',label:'Primer',type:'text',hide:true},
+  {key:'annealed',label:'Annealed',type:'badge'},
+];
+
+function buildLoadsHead(){
+  const tr=document.getElementById('loads-head');
+  LOAD_COLS.forEach(col=>{
+    const th=document.createElement('th');
+    th.dataset.key=col.key;
+    if(col.hide) th.classList.add('col-hide');
+    if(col.key==='id') th.style.width='44px';
+    th.innerHTML=`${col.label}<span class="si material-icons-round">unfold_more</span>`;
+    th.onclick=()=>sortLoads(col.key);
+    tr.appendChild(th);
+  });
+  const th=document.createElement('th'); th.style.width='110px'; tr.appendChild(th);
+}
+
+function sortLoads(key){
+  if(loadsSort.col===key) loadsSort.dir=loadsSort.dir==='asc'?'desc':'asc';
+  else{loadsSort.col=key;loadsSort.dir='asc';}
+  document.querySelectorAll('#loads-head th').forEach(th=>{
+    const s=th.dataset.key===key;
+    th.classList.toggle('sorted',s);
+    const si=th.querySelector('.si');
+    if(si) si.textContent=s?(loadsSort.dir==='asc'?'arrow_upward':'arrow_downward'):'unfold_more';
+  });
+  fetchLoads();
+}
+
+function loadsSearch(){clearTimeout(loadsDebounce);loadsDebounce=setTimeout(fetchLoads,200)}
+function clearLoadsFilter(){['l-search','l-cart','l-pow','l-bwt'].forEach(id=>document.getElementById(id).value='');document.getElementById('l-ann').value='';fetchLoads()}
+
+async function fetchLoads(){
+  setLoading(true);
+  try{
+    const p=new URLSearchParams({
+      search:document.getElementById('l-search').value,
+      cartridge:document.getElementById('l-cart').value,
+      powder_type:document.getElementById('l-pow').value,
+      bullet_weight:document.getElementById('l-bwt').value,
+      annealed:document.getElementById('l-ann').value,
+      sort:loadsSort.col,dir:loadsSort.dir
+    });
+    allLoads=await api('GET',`/api/loads?${p}`);
+    renderLoads(allLoads);
+    refreshLotDatalist();
+  }catch(e){snack('Error loading data','err')}
+  setLoading(false);
+}
+
+function renderLoads(rows){
+  const tbody=document.getElementById('loads-body');
+  const nd=document.getElementById('loads-empty');
+  tbody.innerHTML='';
+  nd.style.display=rows.length?'none':'flex';
+  rows.forEach(row=>{
+    const tr=document.createElement('tr');
+    LOAD_COLS.forEach(col=>{
+      const td=document.createElement('td');
+      const v=row[col.key];
+      if(col.key==='id'){td.className='c-id';td.textContent=v;}
+      else if(col.type==='badge'){
+        td.innerHTML=v==='Yes'?`<span class="chip chip-yes"><span class="mi material-icons-round">check</span>Yes</span>`:v==='No'?`<span class="chip chip-no">No</span>`:'—';
+      }else{
+        if(col.type==='num') td.className='c-num';
+        td.textContent=(v!=null&&v!=='')?v:'—';
+      }
+      if(col.hide) td.classList.add('col-hide');
+      tr.appendChild(td);
+    });
+    const atd=document.createElement('td');atd.className='c-act';
+    // perf shortcut badge
+    atd.innerHTML=`
+      <button class="icon-btn" title="Performance data" onclick="viewLotPerf('${row.lot_number}')" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">speed</span></button>
+      <button class="icon-btn" title="Print label" onclick="printLabel(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">label</span></button>
+      <button class="icon-btn" title="Edit" onclick="editLoad(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+      <button class="icon-btn" title="Delete" onclick="deleteLoad(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>`;
+    tr.appendChild(atd);
+    tbody.appendChild(tr);
+  });
+}
+
+function viewLotPerf(lot){
+  document.getElementById('p-lot').value=lot;
+  navigate('performance');
+}
+
+async function openLoadModal(data){
+  loadEditId=data?.id||null;
+  document.getElementById('load-modal-title').textContent=loadEditId?`Edit Load #${loadEditId}`:'New Load';
+  document.getElementById('load-modal-icon').textContent=loadEditId?'edit':'add_circle';
+  document.getElementById('load-save-text').textContent=loadEditId?'Save Changes':'Add Load';
+  document.getElementById('load-save-icon').textContent=loadEditId?'save':'add';
+
+  // auto-fill today's date for new loads
+  const today=new Date().toISOString().slice(0,10);
+  if(!loadEditId){
+    clearLoadForm();
+    document.getElementById('m-date').value=today;
+    // fetch new lot number
+    try{const r=await api('GET','/api/loads/new-lot');document.getElementById('m-lot_number').value=r.lot_number;}catch(e){}
+  } else {
+    const row=allLoads.find(r=>r.id===loadEditId)||data;
+    if(row) fillLoadForm(row);
+  }
+  await fetchAC();
+  openModal('load-overlay');
+}
+
+function clearLoadForm(){
+  ['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
+   'case_type','powder_type','powder_weight','cartridge_length','brass_length','primer','number_of_loads'].forEach(k=>{
+    const el=document.getElementById('m-'+k);if(el) el.value='';
+  });
+  document.getElementById('m-annealed').value='';
+}
+
+function fillLoadForm(row){
+  ['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
+   'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads'].forEach(k=>{
+    const el=document.getElementById('m-'+k);
+    if(el&&row[k]!=null) el.value=row[k];
+  });
+}
+
+function getLoadFormVals(){
+  const keys=['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
+    'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads'];
+  const vals={};
+  keys.forEach(k=>{vals[k]=document.getElementById('m-'+k)?.value||null;});
+  return vals;
+}
+
+async function saveLoad(){
+  const vals=getLoadFormVals();
+  document.getElementById('load-save-btn').disabled=true;
+  try{
+    let saved;
+    if(loadEditId){
+      saved=await api('PUT',`/api/loads/${loadEditId}`,vals);
+      snack('Load updated','ok');
+    }else{
+      saved=await api('POST','/api/loads',vals);
+      snack('Load added','ok');
+      // Check for missing inventory items
+      const missing=await api('POST','/api/inventory/check',vals);
+      if(missing.length){
+        missingComponents=missing;
+        showInvPrompt(missing);
+      }
+    }
+    closeModal('load-overlay');
+    await Promise.all([fetchLoads(),fetchStats(),fetchInventory()]);
+  }catch(e){snack('Error: '+e.message,'err')}
+  document.getElementById('load-save-btn').disabled=false;
+}
+
+function showInvPrompt(missing){
+  missingComponents=[...missing];
+  showNextMissing();
+}
+
+function showNextMissing(){
+  if(!missingComponents.length){ closeModal('inv-prompt-overlay'); return; }
+  const total=missingComponents._total||missingComponents.length;
+  missingComponents._total=total;
+  const remaining=missingComponents.length;
+  const idx=total-remaining+1;
+
+  const m=missingComponents[0];
+  const body=document.getElementById('inv-prompt-body');
+  body.innerHTML=`
+    <div class="alert alert-warn" style="margin-bottom:8px">
+      <span class="mi material-icons-round">warning</span>
+      <div><strong>${m.category}</strong>: ${m.name}${m.brand?' — '+m.brand:''} is not in your inventory.</div>
+    </div>
+    <div style="font-size:13px;color:var(--osv)">Would you like to add it now so inventory can be tracked and auto-decremented?</div>`;
+  document.getElementById('inv-prompt-title').textContent='Missing Component';
+  document.getElementById('inv-prompt-counter').textContent=`Item ${idx} of ${total}`;
+  openModal('inv-prompt-overlay');
+}
+
+function skipOneMissing(){
+  missingComponents.shift();
+  if(missingComponents.length) showNextMissing();
+  else closeModal('inv-prompt-overlay');
+}
+
+function skipAllMissing(){
+  missingComponents=[];
+  closeModal('inv-prompt-overlay');
+}
+
+function addMissingToInventory(){
+  if(!missingComponents.length){ closeModal('inv-prompt-overlay'); return; }
+  const m=missingComponents.shift();
+  closeModal('inv-prompt-overlay');
+  // After saving the inventory item, continue prompting for the rest
+  openInvModal({category:m.category, name:m.name, brand:m.brand||'', _onSave:()=>{
+    if(missingComponents.length) setTimeout(showNextMissing, 300);
+  }});
+}
+
+async function editLoad(id){
+  const row=allLoads.find(r=>r.id===id);
+  if(row) openLoadModal(row);
+}
+
+async function deleteLoad(id){
+  if(!confirm('Delete this load? This cannot be undone.')) return;
+  try{await api('DELETE',`/api/loads/${id}`);snack('Load deleted','ok');await Promise.all([fetchLoads(),fetchStats()]);}
+  catch(e){snack('Error: '+e.message,'err')}
+}
+
+function printLabel(id){window.open(`/api/loads/${id}/label`,'_blank')}
+
+// ══════════════════════════════════════════════════════════════
+// INVENTORY PAGE
+// ══════════════════════════════════════════════════════════════
+const CAT_META={
+  'Bullets':     {icon:'circle',cls:'cat-bullets', unitDefault:'count'},
+  'Brass/Cases': {icon:'all_inclusive',cls:'cat-brass',  unitDefault:'count'},
+  'Primers':     {icon:'bolt',  cls:'cat-primers',unitDefault:'count'},
+  'Powder':      {icon:'science',cls:'cat-powder', unitDefault:'lb'},
+};
+let allInventory=[];
+
+async function fetchInventory(){
+  try{
+    allInventory=await api('GET','/api/inventory');
+    renderInventory(allInventory);
+  }catch(e){snack('Error loading inventory','err')}
+}
+
+function renderInventory(items){
+  const grid=document.getElementById('inv-grid');
+  grid.innerHTML='';
+  if(!items.length){
+    grid.innerHTML='<div style="padding:40px;color:var(--osv);font-size:14px;opacity:.6">No inventory items yet. Click Add Item to get started.</div>';
+    return;
+  }
+  items.forEach(item=>{
+    const meta=CAT_META[item.category]||{icon:'inventory',cls:'cat-bullets',unitDefault:'count'};
+    const low=item.quantity<=0;
+    const card=document.createElement('div');
+    card.className='inv-card';
+    card.innerHTML=`
+      <div class="inv-card-header">
+        <div class="inv-cat-icon ${meta.cls}"><span class="mi material-icons-round">${meta.icon}</span></div>
+        <div style="flex:1">
+          <div class="inv-card-title">${item.name}</div>
+          ${item.brand?`<div style="font-size:11px;color:var(--osv)">${item.brand}</div>`:''}
+        </div>
+        <div class="inv-card-qty ${low?'qty-low':''}">${formatQty(item.quantity,item.unit)} ${item.unit}</div>
+      </div>
+      <div class="inv-card-body">
+        ${renderInvDetails(item)}
+        ${item.notes?`<div style="font-size:12px;color:var(--osv);margin-top:4px">${item.notes}</div>`:''}
+        ${low?`<div class="chip chip-warn" style="margin-top:6px"><span class="mi material-icons-round">warning</span>Low / Out of Stock</div>`:''}
+      </div>
+      <div style="padding:6px 10px;border-top:1px solid var(--olv);display:flex;justify-content:flex-end;gap:4px">
+        <button class="icon-btn" title="Edit" onclick="editInventory(${item.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+        <button class="icon-btn" title="Delete" onclick="deleteInventory(${item.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function formatQty(q,unit){
+  if(unit==='lb') return parseFloat(q).toFixed(3);
+  return Math.round(q);
+}
+
+function renderInvDetails(item){
+  const rows=[];
+  if(item.category==='Bullets'){
+    if(item.caliber) rows.push(['Caliber', item.caliber]);
+    if(item.weight_grains) rows.push(['Weight', item.weight_grains+' gr']);
+  } else if(item.category==='Brass/Cases'){
+    if(item.caliber) rows.push(['Caliber', item.caliber]);
+  } else if(item.category==='Primers'){
+    if(item.caliber){
+      const parts=item.caliber.split(' | ');
+      if(parts[0]) rows.push(['Size', parts[0]]);
+      if(parts[1]) rows.push(['Type', parts[1]]);
+      if(parts[2]) rows.push(['Magnum', parts[2]]);
+      if(parts[3]) rows.push(['Grade', parts[3]]);
+    }
+  } else if(item.category==='Powder'){
+    if(item.caliber){
+      const parts=item.caliber.split(' | ');
+      if(parts[0]) rows.push(['Form', parts[0]]);
+      if(parts[1]) rows.push(['Use', parts[1]]);
+    }
+  }
+  return rows.map(([k,v])=>`<div class="inv-row"><span class="key">${k}</span><span class="val">${v}</span></div>`).join('');
+}
+
+function onInvCategoryChange(){
+  const cat=document.getElementById('inv-category').value;
+  ['bullets','brass','primers','powder'].forEach(k=>{
+    const el=document.getElementById(`inv-fields-${k}`);
+    if(el) el.style.display='none';
+  });
+  if(cat==='Bullets')     document.getElementById('inv-fields-bullets').style.display='block';
+  if(cat==='Brass/Cases') document.getElementById('inv-fields-brass').style.display='block';
+  if(cat==='Primers')     document.getElementById('inv-fields-primers').style.display='block';
+  if(cat==='Powder')      document.getElementById('inv-fields-powder').style.display='block';
+  // Auto-set unit
+  if(cat==='Powder') document.getElementById('inv-unit').value='lb';
+  else document.getElementById('inv-unit').value='count';
+}
+
+function clearInvForm(){
+  ['inv-name','inv-brand','inv-quantity','inv-notes',
+   'inv-caliber','inv-weight','inv-brass-caliber',
+   'inv-primer-mil','inv-powder-type','inv-powder-use'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  ['inv-category','inv-unit','inv-brass-condition',
+   'inv-primer-size','inv-primer-type','inv-primer-magnum','inv-primer-mil'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('inv-primer-magnum').value='No';
+  ['bullets','brass','primers','powder'].forEach(k=>{
+    const el=document.getElementById(`inv-fields-${k}`); if(el) el.style.display='none';
+  });
+}
+
+function getInvExtraFields(){
+  // Serialize category-specific fields into the caliber/notes fields the DB already has
+  const cat=document.getElementById('inv-category').value;
+  let caliber='', notes=document.getElementById('inv-notes').value, weight_grains='';
+  if(cat==='Bullets'){
+    caliber=document.getElementById('inv-caliber').value;
+    weight_grains=document.getElementById('inv-weight').value;
+  }else if(cat==='Brass/Cases'){
+    caliber=document.getElementById('inv-brass-caliber').value;
+    const cond=document.getElementById('inv-brass-condition').value;
+    if(cond) notes=(notes?notes+' | ':'')+`Condition: ${cond}`;
+  }else if(cat==='Primers'){
+    const size=document.getElementById('inv-primer-size').value;
+    const type=document.getElementById('inv-primer-type').value;
+    const mag=document.getElementById('inv-primer-magnum').value;
+    const mil=document.getElementById('inv-primer-mil').value;
+    // Encode primer attributes into caliber field as structured string
+    caliber=[size,type,mag==='Yes'?'Magnum':'Standard',mil].filter(Boolean).join(' | ');
+  }else if(cat==='Powder'){
+    const ptype=document.getElementById('inv-powder-type').value;
+    const use=document.getElementById('inv-powder-use').value;
+    caliber=[ptype,use].filter(Boolean).join(' | ');
+  }
+  return {caliber, weight_grains, notes};
+}
+
+function fillPrimerFields(caliber){
+  // caliber stores: "Large | Rifle | Standard | Match"
+  if(!caliber) return;
+  const parts=caliber.split(' | ');
+  if(parts[0]) document.getElementById('inv-primer-size').value=parts[0];
+  if(parts[1]) document.getElementById('inv-primer-type').value=parts[1];
+  if(parts[2]) document.getElementById('inv-primer-magnum').value=parts[2]==='Magnum'?'Yes':'No';
+  if(parts[3]) document.getElementById('inv-primer-mil').value=parts[3];
+}
+
+function fillPowderFields(caliber){
+  if(!caliber) return;
+  const parts=caliber.split(' | ');
+  if(parts[0]) document.getElementById('inv-powder-type').value=parts[0];
+  if(parts[1]) document.getElementById('inv-powder-use').value=parts[1];
+}
+
+let invSaveCallback=null;
+function openInvModal(prefill){
+  invEditId=null;
+  invSaveCallback=prefill?._onSave||null;
+  clearInvForm();
+  document.getElementById('inv-modal-title').textContent='Add Inventory Item';
+  document.getElementById('inv-save-text').textContent='Add Item';
+  if(prefill){
+    if(prefill.category){
+      document.getElementById('inv-category').value=prefill.category;
+      onInvCategoryChange();
+    }
+    if(prefill.name) document.getElementById('inv-name').value=prefill.name;
+    if(prefill.brand) document.getElementById('inv-brand').value=prefill.brand;
+  }
+  openModal('inv-overlay');
+  setTimeout(()=>document.getElementById('inv-name').focus(),80);
+}
+
+function editInventory(id){
+  const item=allInventory.find(i=>i.id===id);
+  if(!item) return;
+  invEditId=id;
+  clearInvForm();
+  document.getElementById('inv-modal-title').textContent=`Edit: ${item.name}`;
+  document.getElementById('inv-save-text').textContent='Save Changes';
+  document.getElementById('inv-category').value=item.category||'';
+  onInvCategoryChange();
+  document.getElementById('inv-name').value=item.name||'';
+  document.getElementById('inv-brand').value=item.brand||'';
+  document.getElementById('inv-quantity').value=item.quantity!=null?item.quantity:'';
+  document.getElementById('inv-unit').value=item.unit||'count';
+  document.getElementById('inv-notes').value=item.notes||'';
+  // Restore category-specific fields
+  if(item.category==='Bullets'){
+    document.getElementById('inv-caliber').value=item.caliber||'';
+    document.getElementById('inv-weight').value=item.weight_grains||'';
+  }else if(item.category==='Brass/Cases'){
+    document.getElementById('inv-brass-caliber').value=item.caliber||'';
+  }else if(item.category==='Primers'){
+    fillPrimerFields(item.caliber||'');
+  }else if(item.category==='Powder'){
+    fillPowderFields(item.caliber||'');
+  }
+  openModal('inv-overlay');
+}
+
+async function saveInventory(){
+  const extra=getInvExtraFields();
+  const data={
+    category:document.getElementById('inv-category').value,
+    name:document.getElementById('inv-name').value,
+    brand:document.getElementById('inv-brand').value,
+    caliber:extra.caliber,
+    quantity:document.getElementById('inv-quantity').value,
+    unit:document.getElementById('inv-unit').value,
+    weight_grains:extra.weight_grains,
+    notes:extra.notes,
+  };
+  if(!data.category||!data.name){snack('Category and name are required','err');return;}
+  document.getElementById('inv-save-btn').disabled=true;
+  try{
+    if(invEditId) await api('PUT',`/api/inventory/${invEditId}`,data);
+    else await api('POST','/api/inventory',data);
+    snack(invEditId?'Item updated':'Item added','ok');
+    closeModal('inv-overlay');
+    await fetchInventory();
+    if(invSaveCallback){ const cb=invSaveCallback; invSaveCallback=null; cb(); }
+  }catch(e){snack('Error: '+e.message,'err')}
+  document.getElementById('inv-save-btn').disabled=false;
+}
+
+async function deleteInventory(id){
+  if(!confirm('Delete this inventory item?')) return;
+  try{await api('DELETE',`/api/inventory/${id}`);snack('Item deleted','ok');await fetchInventory();}
+  catch(e){snack('Error','err')}
+}
+
+// ══════════════════════════════════════════════════════════════
+// FIREARMS PAGE
+// ══════════════════════════════════════════════════════════════
+async function fetchFirearms(){
+  try{
+    allFirearms=await api('GET','/api/firearms');
+    renderFirearms(allFirearms);
+    // populate firearm selects
+    const sel=document.getElementById('pf-firearm');
+    const cur=sel.value;
+    sel.innerHTML='<option value="">— select firearm —</option>';
+    allFirearms.forEach(f=>sel.innerHTML+=`<option value="${f.id}">${f.name}${f.caliber?' ('+f.caliber+')':''}</option>`);
+    sel.value=cur;
+    // filter select on perf page
+    const fsel=document.getElementById('p-gun');
+    const fcur=fsel.value;
+    fsel.innerHTML='<option value="">Any</option>';
+    allFirearms.forEach(f=>fsel.innerHTML+=`<option value="${f.id}">${f.name}</option>`);
+    fsel.value=fcur;
+  }catch(e){snack('Error loading firearms','err')}
+}
+
+function renderFirearms(rows){
+  const tbody=document.getElementById('firearms-body');
+  const nd=document.getElementById('firearms-empty');
+  tbody.innerHTML='';
+  nd.style.display=rows.length?'none':'flex';
+  rows.forEach(row=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><strong>${row.name}</strong></td>
+      <td>${row.caliber||'—'}</td>
+      <td class="c-num">${row.barrel_length?row.barrel_length+' '+row.barrel_length_unit:'—'}</td>
+      <td>${row.twist_rate||'—'}</td>
+      <td class="col-hide">${row.manufacturer||'—'}</td>
+      <td class="c-act">
+        <button class="icon-btn" title="Edit" onclick="editFirearm(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+        <button class="icon-btn" title="Delete" onclick="deleteFirearm(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openFirearmModal(){
+  firearmEditId=null;
+  document.getElementById('firearm-modal-title').textContent='Add Firearm';
+  document.getElementById('fa-save-text').textContent='Add Firearm';
+  ['fa-name','fa-caliber','fa-manufacturer','fa-barrel','fa-twist','fa-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fa-barrel-unit').value='in';
+  openModal('firearm-overlay');
+}
+
+function editFirearm(id){
+  const row=allFirearms.find(f=>f.id===id);if(!row) return;
+  firearmEditId=id;
+  document.getElementById('firearm-modal-title').textContent=`Edit: ${row.name}`;
+  document.getElementById('fa-save-text').textContent='Save Changes';
+  document.getElementById('fa-name').value=row.name||'';
+  document.getElementById('fa-caliber').value=row.caliber||'';
+  document.getElementById('fa-manufacturer').value=row.manufacturer||'';
+  document.getElementById('fa-barrel').value=row.barrel_length||'';
+  document.getElementById('fa-barrel-unit').value=row.barrel_length_unit||'in';
+  document.getElementById('fa-twist').value=row.twist_rate||'';
+  document.getElementById('fa-notes').value=row.notes||'';
+  openModal('firearm-overlay');
+}
+
+async function saveFirearm(){
+  const data={
+    name:document.getElementById('fa-name').value,
+    caliber:document.getElementById('fa-caliber').value,
+    manufacturer:document.getElementById('fa-manufacturer').value,
+    barrel_length:document.getElementById('fa-barrel').value,
+    barrel_length_unit:document.getElementById('fa-barrel-unit').value,
+    twist_rate:document.getElementById('fa-twist').value,
+    notes:document.getElementById('fa-notes').value,
+  };
+  if(!data.name){snack('Name is required','err');return;}
+  document.getElementById('fa-save-btn').disabled=true;
+  try{
+    if(firearmEditId) await api('PUT',`/api/firearms/${firearmEditId}`,data);
+    else await api('POST','/api/firearms',data);
+    snack(firearmEditId?'Firearm updated':'Firearm added','ok');
+    closeModal('firearm-overlay');
+    await fetchFirearms();
+  }catch(e){snack('Error: '+e.message,'err')}
+  document.getElementById('fa-save-btn').disabled=false;
+}
+
+async function deleteFirearm(id){
+  if(!confirm('Delete this firearm?')) return;
+  try{await api('DELETE',`/api/firearms/${id}`);snack('Deleted','ok');await fetchFirearms();}
+  catch(e){snack('Error','err')}
+}
+
+// ══════════════════════════════════════════════════════════════
+// PERFORMANCE PAGE
+// ══════════════════════════════════════════════════════════════
+let allPerf=[];
+
+function perfSort(col){
+  if(perfSort_.col===col) perfSort_.dir=perfSort_.dir==='asc'?'desc':'asc';
+  else{perfSort_.col=col;perfSort_.dir='asc';}
+  const sorted=[...allPerf].sort((a,b)=>{
+    let av=a[col],bv=b[col];
+    if(av==null) av='';if(bv==null) bv='';
+    if(!isNaN(Number(av))&&!isNaN(Number(bv))&&av!==''&&bv!==''){av=Number(av);bv=Number(bv);}
+    else{av=String(av).toLowerCase();bv=String(bv).toLowerCase();}
+    if(av<bv) return perfSort_.dir==='asc'?-1:1;
+    if(av>bv) return perfSort_.dir==='asc'?1:-1;
+    return 0;
+  });
+  renderPerf(sorted);
+}
+
+function perfSearch(){clearTimeout(perfDebounce);perfDebounce=setTimeout(fetchPerformance,200)}
+function clearPerfFilter(){document.getElementById('p-lot').value='';document.getElementById('p-gun').value='';fetchPerformance()}
+
+async function fetchPerformance(){
+  setLoading(true);
+  try{
+    const lot=document.getElementById('p-lot').value;
+    allPerf=await api('GET',`/api/performance${lot?'?lot_number='+encodeURIComponent(lot):''}`);
+    // filter by firearm client-side
+    const gun=document.getElementById('p-gun').value;
+    const filtered=gun?allPerf.filter(p=>String(p.firearm_id)===gun):allPerf;
+    renderPerf(filtered);
+  }catch(e){snack('Error loading performance','err')}
+  setLoading(false);
+}
+
+function renderPerf(rows){
+  const tbody=document.getElementById('perf-body');
+  const nd=document.getElementById('perf-empty');
+  tbody.innerHTML='';
+  nd.style.display=rows.length?'none':'flex';
+  rows.forEach(row=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><button class="badge badge-blue" onclick="viewLotLoads('${row.lot_number}')">${row.lot_number||'—'}</button></td>
+      <td>${row.firearm_name||'—'}</td>
+      <td class="c-num col-hide">${row.date||'—'}</td>
+      <td class="c-num">${row.distance?row.distance+' '+row.distance_unit:'—'}</td>
+      <td class="c-num">${row.avg_velocity?row.avg_velocity+' fps':'—'}</td>
+      <td class="c-num">${row.std_dev||'—'}</td>
+      <td class="c-num col-hide">${row.extreme_spread||'—'}</td>
+      <td class="c-num">${row.group_size?row.group_size+' '+row.group_unit:'—'}</td>
+      <td class="c-num col-hide">${row.num_shots||'—'}</td>
+      <td class="c-act">
+        <button class="icon-btn" title="Edit" onclick="editPerformance(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+        <button class="icon-btn" title="Delete" onclick="deletePerformance(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function viewLotLoads(lot){
+  document.getElementById('l-search').value=lot;
+  navigate('loads');
+}
+
+function openPerfModal(prefillLot){
+  perfEditId=null;
+  document.getElementById('perf-modal-title').textContent='Add Performance Session';
+  document.getElementById('pf-save-text').textContent='Add Session';
+  ['pf-lot','pf-date','pf-shots','pf-dist','pf-vel','pf-sd','pf-es','pf-group','pf-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pf-dist-unit').value='yd';
+  document.getElementById('pf-group-unit').value='MOA';
+  document.getElementById('pf-firearm').value='';
+  if(prefillLot) document.getElementById('pf-lot').value=prefillLot;
+  openModal('perf-overlay');
+}
+
+function editPerformance(id){
+  const row=allPerf.find(p=>p.id===id);if(!row) return;
+  perfEditId=id;
+  document.getElementById('perf-modal-title').textContent='Edit Performance Session';
+  document.getElementById('pf-save-text').textContent='Save Changes';
+  document.getElementById('pf-lot').value=row.lot_number||'';
+  document.getElementById('pf-firearm').value=row.firearm_id||'';
+  document.getElementById('pf-date').value=row.date||'';
+  document.getElementById('pf-shots').value=row.num_shots||'';
+  document.getElementById('pf-dist').value=row.distance||'';
+  document.getElementById('pf-dist-unit').value=row.distance_unit||'yd';
+  document.getElementById('pf-vel').value=row.avg_velocity||'';
+  document.getElementById('pf-sd').value=row.std_dev||'';
+  document.getElementById('pf-es').value=row.extreme_spread||'';
+  document.getElementById('pf-group').value=row.group_size||'';
+  document.getElementById('pf-group-unit').value=row.group_unit||'MOA';
+  document.getElementById('pf-notes').value=row.notes||'';
+  openModal('perf-overlay');
+}
+
+async function savePerformance(){
+  const data={
+    lot_number:document.getElementById('pf-lot').value,
+    firearm_id:document.getElementById('pf-firearm').value||null,
+    date:document.getElementById('pf-date').value,
+    num_shots:document.getElementById('pf-shots').value,
+    distance:document.getElementById('pf-dist').value,
+    distance_unit:document.getElementById('pf-dist-unit').value,
+    avg_velocity:document.getElementById('pf-vel').value,
+    std_dev:document.getElementById('pf-sd').value,
+    extreme_spread:document.getElementById('pf-es').value,
+    group_size:document.getElementById('pf-group').value,
+    group_unit:document.getElementById('pf-group-unit').value,
+    notes:document.getElementById('pf-notes').value,
+  };
+  document.getElementById('pf-save-btn').disabled=true;
+  try{
+    if(perfEditId) await api('PUT',`/api/performance/${perfEditId}`,data);
+    else await api('POST','/api/performance',data);
+    snack(perfEditId?'Session updated':'Session added','ok');
+    closeModal('perf-overlay');
+    await fetchPerformance();
+  }catch(e){snack('Error: '+e.message,'err')}
+  document.getElementById('pf-save-btn').disabled=false;
+}
+
+async function deletePerformance(id){
+  if(!confirm('Delete this performance session?')) return;
+  try{await api('DELETE',`/api/performance/${id}`);snack('Deleted','ok');await fetchPerformance();}
+  catch(e){snack('Error','err')}
+}
+
+// ══════════════════════════════════════════════════════════════
+// SETTINGS PAGE
+// ══════════════════════════════════════════════════════════════
+const LABEL_FIELDS=[
+  {group:'Header',fields:[
+    {key:'cartridge',           label:'Cartridge name'},
+  ]},
+  {group:'Bullet',fields:[
+    {key:'bullet_manufacturer', label:'Bullet manufacturer'},
+    {key:'bullet_type',         label:'Bullet type'},
+    {key:'bullet_weight',       label:'Bullet weight'},
+  ]},
+  {group:'Powder',fields:[
+    {key:'powder_type',         label:'Powder type'},
+    {key:'powder_weight',       label:'Powder charge'},
+  ]},
+  {group:'Dimensions',fields:[
+    {key:'cartridge_length',    label:'COAL'},
+    {key:'primer',              label:'Primer'},
+  ]},
+  {group:'Footer bar fields',fields:[
+    {key:'date',                label:'Date'},
+    {key:'case_type',           label:'Case type'},
+    {key:'annealed',            label:'Annealed'},
+    {key:'number_of_loads',     label:'Times brass fired'},
+    {key:'rounds_made',         label:'Rounds made'},
+  ]},
+];
+
+async function loadSettings(){
+  try{
+    settingsCache=await api('GET','/api/settings');
+    const s=settingsCache;
+    document.getElementById('s-label-name').value=s.label_name||'';
+    document.getElementById('s-label-w').value=s.label_width_mm||'50';
+    document.getElementById('s-label-h').value=s.label_height_mm||'30';
+    setLabelUnit(s.label_units||'mm',false);
+    document.getElementById('s-auto-dec').checked=(s.auto_decrement||'1')==='1';
+    document.getElementById('s-dark').checked=document.documentElement.dataset.theme==='dark';
+
+    // Build per-field label toggles grouped by section
+    const wrap=document.getElementById('label-toggles');
+    wrap.innerHTML='';
+    LABEL_FIELDS.forEach(group=>{
+      wrap.innerHTML+=`<div style="font-size:11px;font-weight:500;color:var(--osv);text-transform:uppercase;letter-spacing:1px;margin:10px 0 4px">${group.group}</div>`;
+      group.fields.forEach(f=>{
+        const on=(s[`label_show_${f.key}`]||'1')==='1';
+        wrap.innerHTML+=`
+          <div class="toggle-row">
+            <div class="toggle-label">${f.label}</div>
+            <label class="toggle">
+              <input type="checkbox" id="s-show-${f.key}" ${on?'checked':''}>
+              <div class="toggle-track"></div><div class="toggle-thumb"></div>
+            </label>
+          </div>`;
+      });
+    });
+  }catch(e){snack('Error loading settings','err')}
+}
+
+function setLabelUnit(unit, update=true){
+  document.getElementById('unit-mm').classList.toggle('active',unit==='mm');
+  document.getElementById('unit-in').classList.toggle('active',unit==='in');
+  document.getElementById('s-label-w-lbl').textContent=`Label Width (${unit})`;
+  document.getElementById('s-label-h-lbl').textContent=`Label Height (${unit})`;
+  if(update){
+    // Convert existing values
+    const w=parseFloat(document.getElementById('s-label-w').value)||0;
+    const h=parseFloat(document.getElementById('s-label-h').value)||0;
+    const prev=settingsCache.label_units||'mm';
+    if(unit!==prev&&w&&h){
+      if(unit==='in'){
+        document.getElementById('s-label-w').value=(w/25.4).toFixed(3);
+        document.getElementById('s-label-h').value=(h/25.4).toFixed(3);
+      }else{
+        document.getElementById('s-label-w').value=(w*25.4).toFixed(1);
+        document.getElementById('s-label-h').value=(h*25.4).toFixed(1);
+      }
+    }
+    settingsCache.label_units=unit;
+  }
+}
+
+async function saveSettings(){
+  const data={
+    label_name:document.getElementById('s-label-name').value,
+    label_units:settingsCache.label_units||'mm',
+    label_width_mm:document.getElementById('s-label-w').value,
+    label_height_mm:document.getElementById('s-label-h').value,
+    auto_decrement:document.getElementById('s-auto-dec').checked?'1':'0',
+  };
+  LABEL_FIELDS.forEach(group=>{
+    group.fields.forEach(f=>{
+      data[`label_show_${f.key}`]=document.getElementById(`s-show-${f.key}`)?.checked?'1':'0';
+    });
+  });
+  try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};}
+  catch(e){snack('Error saving settings','err')}
+}
+
+// ══════════════════════════════════════════════════════════════
+// AUTOCOMPLETE
+// ══════════════════════════════════════════════════════════════
+async function fetchAC(){
+  const map=[
+    ['dl-cartridge','cartridge'],['dl-bm','bullet_manufacturer'],['dl-bt','bullet_type'],
+    ['dl-case','case_type'],['dl-pow','powder_type'],['dl-primer','primer'],
+  ];
+  for(const [dlId,col] of map){
+    try{
+      const vals=await api('GET',`/api/distinct/${col}`);
+      const dl=document.getElementById(dlId);
+      if(dl) dl.innerHTML=vals.map(v=>`<option value="${v}">`).join('');
+    }catch(e){}
+  }
+  // inventory-based AC for component fields
+  const invMap=[
+    ['dl-bt','Bullets'],['dl-case','Brass/Cases'],['dl-primer','Primers'],['dl-pow','Powder']
+  ];
+  for(const [dlId,cat] of invMap){
+    try{
+      const items=await api('GET',`/api/inventory/names/${encodeURIComponent(cat)}`);
+      const dl=document.getElementById(dlId);
+      if(dl){
+        const existing=new Set(Array.from(dl.options).map(o=>o.value));
+        items.forEach(i=>{if(!existing.has(i.name)) dl.innerHTML+=`<option value="${i.name}">`});
+      }
+    }catch(e){}
+  }
+}
+
+function refreshLotDatalist(){
+  const dl=document.getElementById('dl-perf-lot');
+  if(!dl) return;
+  const lots=[...new Set(allLoads.map(r=>r.lot_number).filter(Boolean))];
+  dl.innerHTML=lots.map(l=>`<option value="${l}">`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// MODAL HELPERS
+// ══════════════════════════════════════════════════════════════
+function openModal(id){document.getElementById(id).classList.add('open')}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+function overlayClick(e,id){if(e.target===document.getElementById(id)) closeModal(id)}
+document.addEventListener('keydown',e=>{if(e.key==='Escape') document.querySelectorAll('.overlay.open').forEach(o=>o.classList.remove('open'))});
+
+// ══════════════════════════════════════════════════════════════
+// THEME
+// ══════════════════════════════════════════════════════════════
+function toggleTheme(){
+  const html=document.documentElement;
+  const dark=html.dataset.theme==='dark';
+  html.dataset.theme=dark?'light':'dark';
+  document.getElementById('theme-icon').textContent=dark?'dark_mode':'light_mode';
+  const cb=document.getElementById('s-dark');if(cb) cb.checked=!dark;
+  localStorage.setItem('theme',html.dataset.theme);
+}
+(function(){
+  const saved=localStorage.getItem('theme')||'light';
+  document.documentElement.dataset.theme=saved;
+  window.addEventListener('DOMContentLoaded',()=>{
+    document.getElementById('theme-icon').textContent=saved==='dark'?'light_mode':'dark_mode';
+    const cb=document.getElementById('s-dark');if(cb) cb.checked=saved==='dark';
+  });
+})();
+
+// ══════════════════════════════════════════════════════════════
+// CSV
+// ══════════════════════════════════════════════════════════════
+function exportCSV(){window.location.href='/api/export'}
+async function importCSV(e){
+  const file=e.target.files[0];if(!file) return;
+  const form=new FormData();form.append('file',file);
+  try{const r=await fetch('/api/import',{method:'POST',body:form});const d=await r.json();snack(`Imported ${d.imported} records`,'ok');await Promise.all([fetchLoads(),fetchStats()]);}
+  catch(e){snack('Import failed','err')}
+  e.target.value='';
+}
+
+// ══════════════════════════════════════════════════════════════
+// SNACKBAR
+// ══════════════════════════════════════════════════════════════
+let snackTimer;
+function snack(msg,type='ok'){
+  const el=document.getElementById('snack');
+  document.getElementById('snack-msg').textContent=msg;
+  document.getElementById('snack-icon').textContent=type==='err'?'error_outline':type==='warn'?'warning':'check_circle';
+  el.className=`snack ${type} show`;
+  clearTimeout(snackTimer);
+  snackTimer=setTimeout(()=>el.classList.remove('show'),3200);
+}
+
+// ══════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════
+buildLoadsHead();
+Promise.all([fetchLoads(),fetchFirearms(),fetchStats(),fetchAC()]);
+</script>
+</body>
+</html>

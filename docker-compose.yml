@@ -1,0 +1,47 @@
+services:
+
+  reloading-app:
+    build: .
+    container_name: reloading-app
+    expose:
+      - "5000"
+    volumes:
+      - reloading-data:/data
+    restart: unless-stopped
+    environment:
+      - DB_PATH=/data/reloading.db
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:alpine
+    container_name: reloading-nginx
+    expose:
+      - "80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - reloading-app
+    restart: unless-stopped
+    networks:
+      - internal
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: reloading-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - nginx
+    networks:
+      - internal
+
+volumes:
+  reloading-data:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge
