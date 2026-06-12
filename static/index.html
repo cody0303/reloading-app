@@ -984,7 +984,12 @@ async function deleteLoad(id){
   catch(e){snack('Error: '+e.message,'err')}
 }
 
-function printLabel(id){window.open(`/api/loads/${id}/label`,'_blank')}
+function printLabel(id){
+  const a=document.createElement('a');
+  a.href=`/api/loads/${id}/label`;
+  a.download=`label_${id}.png`;
+  a.click();
+}
 
 // ══════════════════════════════════════════════════════════════
 // INVENTORY PAGE

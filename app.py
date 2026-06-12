@@ -1,8 +1,6 @@
 from flask import Flask, jsonify, request, send_from_directory, Response
 import sqlite3, os, csv, io, json, datetime, random, string
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import inch
-from reportlab.pdfgen import canvas as rl_canvas
+from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__, static_folder="static")
 DB_PATH = os.environ.get("DB_PATH", "reloading.db")
@@ -516,34 +514,49 @@ def import_csv():
     conn.close()
     return jsonify({"imported": count})
 
-# ── Label PDF ─────────────────────────────────────────────────
+# ── Label PNG ─────────────────────────────────────────────────
+def _font(bold=False, size=14):
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    for base in ("/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/dejavu"):
+        p = f"{base}/{name}"
+        if os.path.exists(p):
+            return ImageFont.truetype(p, size)
+    return ImageFont.load_default()
+
 @app.route("/api/loads/<int:load_id>/label")
 def print_label(load_id):
     conn = get_db()
     row = conn.execute("SELECT * FROM loads WHERE id=?", (load_id,)).fetchone()
     conn.close()
-    if not row: return jsonify({"error":"Not found"}), 404
+    if not row: return jsonify({"error": "Not found"}), 404
     r = dict(row)
     s = get_settings()
 
-    # 203 DPI thermal: 1pt = 203/72 = 2.819 dots. Keep values on clean dot boundaries.
-    MM = 2.8346
+    DPI = 203
     units = s.get("label_units", "mm")
     if units == "in":
-        W = float(s.get("label_width_mm",  "50")) * inch
-        H = float(s.get("label_height_mm", "30")) * inch
+        W = round(float(s.get("label_width_mm",  "50")) * DPI)
+        H = round(float(s.get("label_height_mm", "30")) * DPI)
     else:
-        W = float(s.get("label_width_mm",  "50")) * MM
-        H = float(s.get("label_height_mm", "30")) * MM
+        W = round(float(s.get("label_width_mm",  "50")) * DPI / 25.4)
+        H = round(float(s.get("label_height_mm", "30")) * DPI / 25.4)
 
-    PAD      = 4
-    HDR_FONT = 8
-    VAL_FONT = 7
-    LBL_FONT = 6
-    FTR_FONT = 6
+    scale  = W / 400.0
+    PAD    = max(4,  round(11 * scale))
+    HDR_FS = max(8,  round(22 * scale))
+    VAL_FS = max(7,  round(20 * scale))
+    LBL_FS = max(6,  round(17 * scale))
+    FTR_FS = max(6,  round(17 * scale))
+    HDR_H  = max(12, round(42 * scale))
+    FTR_H  = max(10, round(34 * scale))
 
-    buf = io.BytesIO()
-    c = rl_canvas.Canvas(buf, pagesize=(W, H))
+    f_hdr = _font(bold=True,  size=HDR_FS)
+    f_val = _font(bold=True,  size=VAL_FS)
+    f_lbl = _font(bold=False, size=LBL_FS)
+    f_ftr = _font(bold=False, size=FTR_FS)
+
+    img  = Image.new("RGB", (W, H), "white")
+    draw = ImageDraw.Draw(img)
 
     def val(key):
         v = r.get(key)
@@ -552,30 +565,21 @@ def print_label(load_id):
     def show(key):
         return s.get(f"label_show_{key}", "1") == "1"
 
-    def clip(text, max_pts, font, size):
-        while len(text) > 1 and c.stringWidth(text, font, size) > max_pts:
+    def clip(text, max_w, font):
+        while len(text) > 1 and draw.textlength(text, font=font) > max_w:
             text = text[:-1]
         return text
 
     # ── Header bar ───────────────────────────────────────────────
-    HDR_H  = HDR_FONT + 7   # ~15pt
-    TEXT_Y = H - HDR_H + 4
-
-    c.setFillColor(colors.black)
-    c.rect(0, H - HDR_H, W, HDR_H, fill=1, stroke=0)
-    c.setFillColor(colors.white)
+    draw.rectangle([0, 0, W - 1, HDR_H - 1], fill="black")
+    hdr_ty = (HDR_H - HDR_FS) // 2
 
     if show("cartridge"):
-        cart = clip(val("cartridge") or "Unknown", W * 0.62 - PAD * 2, "Helvetica-Bold", HDR_FONT)
-        c.setFont("Helvetica-Bold", HDR_FONT)
-        c.drawString(PAD, TEXT_Y, cart)
+        cart = clip(val("cartridge") or "Unknown", W * 0.62 - PAD * 2, f_hdr)
+        draw.text((PAD, hdr_ty), cart, font=f_hdr, fill="white")
 
-    # Right side of header: name and/or lot, single line
     custom_name = s.get("label_name", "").strip()
     lot_str = val("lot_number")
-    right_width = W * 0.40 - PAD
-    right_y = H - HDR_H + 5
-
     if custom_name and lot_str:
         right_text = f"{custom_name} | {lot_str}"
     elif custom_name:
@@ -584,13 +588,12 @@ def print_label(load_id):
         right_text = lot_str
 
     if right_text:
-        right_clipped = clip(right_text, right_width, "Helvetica", LBL_FONT)
-        c.setFont("Helvetica", LBL_FONT)
-        c.drawRightString(W - PAD, right_y, right_clipped)
+        rc = clip(right_text, W * 0.40 - PAD, f_lbl)
+        tw = draw.textlength(rc, font=f_lbl)
+        draw.text((W - PAD - tw, hdr_ty + (HDR_FS - LBL_FS) // 2), rc, font=f_lbl, fill="white")
 
     # ── Footer bar ───────────────────────────────────────────────
-    FTR_H = FTR_FONT + 6   # ~12pt
-
+    draw.rectangle([0, H - FTR_H, W - 1, H - 1], fill="#DDDDDD")
     footer_fields = [
         ("date",            val("date")),
         ("case_type",       val("case_type")),
@@ -599,13 +602,9 @@ def print_label(load_id):
         ("rounds_made",     f"{val('rounds_made')}rds" if val("rounds_made") else ""),
     ]
     footer_parts = [text for key, text in footer_fields if show(key) and text]
-
-    c.setFillColor(colors.HexColor("#DDDDDD"))
-    c.rect(0, 0, W, FTR_H, fill=1, stroke=0)
-    footer_text = clip("  |  ".join(footer_parts), W - PAD * 2, "Helvetica", FTR_FONT)
-    c.setFillColor(colors.HexColor("#333333"))
-    c.setFont("Helvetica", FTR_FONT)
-    c.drawString(PAD, FTR_H - FTR_FONT - 1, footer_text)
+    footer_text = clip("  |  ".join(footer_parts), W - PAD * 2, f_ftr)
+    ftr_ty = H - FTR_H + (FTR_H - FTR_FS) // 2
+    draw.text((PAD, ftr_ty), footer_text, font=f_ftr, fill="#333333")
 
     # ── Body ─────────────────────────────────────────────────────
     body_fields = []
@@ -627,45 +626,36 @@ def print_label(load_id):
     if show("primer"):
         body_fields.append(("PRIMER", val("primer")))
 
-    if not body_fields:
-        c.save(); buf.seek(0)
-        return Response(buf.read(), mimetype="application/pdf",
-            headers={"Content-Disposition": f"inline; filename=label_{load_id}.pdf"})
+    if body_fields:
+        pairs = []
+        for i in range(0, len(body_fields), 2):
+            left  = body_fields[i]
+            right = body_fields[i + 1] if i + 1 < len(body_fields) else None
+            pairs.append((left, right))
 
-    # Pair into rows of 2
-    pairs = []
-    for i in range(0, len(body_fields), 2):
-        left  = body_fields[i]
-        right = body_fields[i+1] if i+1 < len(body_fields) else None
-        pairs.append((left, right))
+        BODY_TOP = HDR_H + 2
+        BODY_BOT = H - FTR_H - 2
+        ROW_H    = (BODY_BOT - BODY_TOP) / len(pairs)
+        half     = (W - PAD * 3) // 2
 
-    BODY_TOP = H - HDR_H - 2
-    BODY_BOT = FTR_H + 2
-    BODY_H   = BODY_TOP - BODY_BOT
-    ROW_H    = BODY_H / len(pairs)
-    half     = (W - PAD * 3) / 2
+        def draw_cell(label, value, x, cy, w, rh):
+            v = clip(value if value else "—", w - 2, f_val)
+            draw.text((x, cy + 1), label, font=f_lbl, fill="#666666")
+            draw.text((x, cy + rh - VAL_FS - 2), v, font=f_val, fill="black")
 
-    # ── Draw cell contents ───────────────────────────────────────
-    def draw_cell(label, value, x, y, w, rh):
-        v = clip(value if value else "—", w - 2, "Helvetica-Bold", VAL_FONT)
-        c.setFillColor(colors.HexColor("#666666"))
-        c.setFont("Helvetica", LBL_FONT)
-        c.drawString(x, y + rh - LBL_FONT - 0.5, label)
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica-Bold", VAL_FONT)
-        c.drawString(x, y + 1, v)
+        for i, (left, right) in enumerate(pairs):
+            y = BODY_TOP + i * ROW_H
+            if right:
+                draw_cell(left[0],  left[1],  PAD,           y, half, ROW_H)
+                draw_cell(right[0], right[1], PAD * 2 + half, y, half, ROW_H)
+            else:
+                draw_cell(left[0], left[1], PAD, y, W - PAD * 2, ROW_H)
 
-    for i, (left, right) in enumerate(reversed(pairs)):
-        y = BODY_BOT + i * ROW_H
-        if right:
-            draw_cell(left[0],  left[1],  PAD,        y, half, ROW_H)
-            draw_cell(right[0], right[1], PAD*2+half, y, half, ROW_H)
-        else:
-            draw_cell(left[0], left[1], PAD, y, W - PAD*2, ROW_H)
-
-    c.save(); buf.seek(0)
-    return Response(buf.read(), mimetype="application/pdf",
-        headers={"Content-Disposition": f"inline; filename=label_{load_id}.pdf"})
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", dpi=(DPI, DPI))
+    buf.seek(0)
+    return Response(buf.read(), mimetype="image/png",
+        headers={"Content-Disposition": f"attachment; filename=label_{load_id}.png"})
 
 init_db()
 if __name__ == "__main__":
