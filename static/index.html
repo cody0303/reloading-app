@@ -14,6 +14,7 @@
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=target" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -196,6 +197,13 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 .unit-toggle{display:flex;border:1px solid var(--ol);border-radius:var(--rsm);overflow:hidden}
 .unit-toggle button{flex:1;padding:6px 12px;border:none;background:transparent;cursor:pointer;font-family:'Roboto',sans-serif;font-size:13px;color:var(--osv);transition:background .15s,color .15s}
 .unit-toggle button.active{background:var(--p);color:white}
+.ms{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;font-size:24px;-webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
+.mi-svg{width:1em;height:1em;fill:currentColor;display:inline-block;vertical-align:middle;flex-shrink:0}
+.col-picker{position:fixed;z-index:300;background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);box-shadow:var(--s3);padding:10px 14px;min-width:210px;max-height:70vh;overflow:auto}
+.col-picker .cp-title{font-size:13px;font-weight:500;color:var(--os);margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.col-picker .cp-title span{font-size:11px;font-weight:400;color:var(--osv)}
+.col-picker label{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:var(--os);cursor:pointer}
+.col-picker input{width:16px;height:16px;accent-color:var(--p)}
 
 /* ── Inventory page ── */
 .inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:0 12px 80px}
@@ -233,6 +241,19 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-rifle" viewBox="0 0 24 24">
+    <g transform="translate(12 12) rotate(-38) scale(.94) translate(-12.25 -11.4)">
+      <path d="M1 9.6 9 9.4V12.8H10.4L11 17.6H9L8.2 14.6 1 15.4Z"/>
+      <rect x="8.5" y="8.4" width="5.5" height="4.2" rx=".8"/>
+      <rect x="13.5" y="9.5" width="10" height="1.8" rx=".9"/>
+      <rect x="9" y="5.2" width="8" height="2.2" rx="1.1"/>
+      <rect x="10.2" y="7.2" width="1.1" height="1.4"/>
+      <rect x="14.2" y="7.2" width="1.1" height="1.4"/>
+      <rect x="11.6" y="12.4" width="2.6" height="2.8" rx=".5"/>
+    </g>
+  </symbol>
+</svg>
 
 <div class="progress" id="progress"></div>
 
@@ -250,10 +271,10 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <span class="mi material-icons-round">warehouse</span><span class="lbl">Inventory</span>
     </button>
     <button class="nav-link" data-page="firearms" onclick="navigate('firearms')">
-      <span class="mi material-icons-round">settings</span><span class="lbl">Firearms</span>
+      <svg class="mi mi-svg"><use href="#i-rifle"/></svg><span class="lbl">Firearms</span>
     </button>
     <button class="nav-link" data-page="performance" onclick="navigate('performance')">
-      <span class="mi material-icons-round">speed</span><span class="lbl">Performance</span>
+      <span class="mi ms">target</span><span class="lbl">Performance</span>
     </button>
     <button class="nav-link" data-page="settings" onclick="navigate('settings')">
       <span class="mi material-icons-round">tune</span><span class="lbl">Settings</span>
@@ -312,7 +333,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 <!-- ══════════════════════════════════════════════════════════ -->
 <div class="page" id="page-firearms">
   <div class="page-header">
-    <span class="mi material-icons-round" style="color:var(--p);font-size:26px">settings</span>
+    <svg class="mi mi-svg" style="color:var(--p);font-size:26px"><use href="#i-rifle"/></svg>
     <div class="page-title">Firearms</div>
     <div class="page-actions">
       <button class="btn btn-filled btn-sm" onclick="openFirearmModal()"><span class="mi material-icons-round">add</span>Add Firearm</button>
@@ -326,7 +347,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
         </tr></thead>
         <tbody id="firearms-body"></tbody>
       </table>
-      <div class="no-data" id="firearms-empty"><span class="mi material-icons-round">settings</span><p>No firearms added yet</p></div>
+      <div class="no-data" id="firearms-empty"><svg class="mi mi-svg"><use href="#i-rifle"/></svg><p>No firearms added yet</p></div>
     </div>
   </div>
 </div>
@@ -368,7 +389,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
         </tr></thead>
         <tbody id="perf-body"></tbody>
       </table>
-      <div class="no-data" id="perf-empty"><span class="mi material-icons-round">speed</span><p>No performance data yet</p></div>
+      <div class="no-data" id="perf-empty"><span class="mi ms">target</span><p>No performance data yet</p></div>
     </div>
   </div>
   <button class="fab" onclick="openPerfModal()" id="perf-add-fab"><span class="mi material-icons-round">add</span>Add Session</button>
@@ -481,14 +502,6 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       </div>
     </div>
 
-    <!-- Loads table settings -->
-    <div class="settings-card">
-      <h3><span class="mi material-icons-round">table_rows</span>Loads Table</h3>
-      <div class="fl" style="margin-bottom:8px">Columns shown on mobile</div>
-      <div id="mobile-col-toggles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px"></div>
-      <div class="toggle-sub" style="margin-top:10px">Desktop always shows every column. Press Save to apply.</div>
-    </div>
-
     <!-- Inventory settings -->
     <div class="settings-card">
       <h3><span class="mi material-icons-round">warehouse</span>Inventory</h3>
@@ -507,7 +520,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 
     <!-- Performance settings -->
     <div class="settings-card">
-      <h3><span class="mi material-icons-round">speed</span>Performance Data</h3>
+      <h3><span class="mi ms">target</span>Performance Data</h3>
       <div class="settings-grid" style="margin-bottom:14px">
         <div style="display:flex;flex-direction:column;gap:4px">
           <div class="fl">Velocity / Speed</div>
@@ -735,7 +748,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 <div class="overlay modal-sm" id="firearm-overlay" onclick="overlayClick(event,'firearm-overlay')">
 <div class="modal">
   <div class="mhdr">
-    <div class="mhdr-icon"><span class="mi material-icons-round">settings</span></div>
+    <div class="mhdr-icon"><svg class="mi mi-svg"><use href="#i-rifle"/></svg></div>
     <div class="mtitle" id="firearm-modal-title">Add Firearm</div>
     <button class="icon-btn" onclick="closeModal('firearm-overlay')"><span class="mi material-icons-round">close</span></button>
   </div>
@@ -764,7 +777,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 <div class="overlay modal-lg" id="perf-overlay" onclick="overlayClick(event,'perf-overlay')">
 <div class="modal" id="perf-modal-inner" style="max-height:92vh;display:flex;flex-direction:column">
   <div class="mhdr">
-    <div class="mhdr-icon"><span class="mi material-icons-round">speed</span></div>
+    <div class="mhdr-icon"><span class="mi ms">target</span></div>
     <div class="mtitle" id="perf-modal-title">Add Performance Session</div>
     <button class="icon-btn" onclick="closeModal('perf-overlay')"><span class="mi material-icons-round">close</span></button>
   </div>
@@ -943,44 +956,116 @@ const LOAD_COLS=[
   {key:'date',label:'Date',type:'text'},
   {key:'cartridge',label:'Cartridge',type:'text'},
   {key:'rounds_made',label:'Rounds',type:'num'},
+  {key:'bullet_manufacturer',label:'Bullet Mfr',type:'text'},
   {key:'bullet_type',label:'Bullet',type:'text'},
   {key:'bullet_weight',label:'Blt Wt',type:'num'},
   {key:'powder_type',label:'Powder',type:'text'},
   {key:'powder_weight',label:'Charge',type:'num'},
   {key:'cartridge_length',label:'COAL',type:'num'},
+  {key:'base_to_ogive',label:'BTO',type:'num'},
   {key:'primer',label:'Primer',type:'text'},
+  {key:'case_type',label:'Case',type:'text'},
+  {key:'brass_length',label:'Brass Len',type:'num'},
+  {key:'number_of_loads',label:'Times Fired',type:'num'},
   {key:'annealed',label:'Annealed',type:'badge'},
 ];
+const LOAD_COL_DEFAULTS={
+  wide:['id','lot_number','date','cartridge','rounds_made','bullet_type','bullet_weight','powder_type','powder_weight','cartridge_length','primer','annealed'],
+  narrow:['id','lot_number','date','cartridge','rounds_made','powder_type','powder_weight','annealed'],
+};
 
-// Columns shown on narrow screens; desktop always shows all of them
-const DEFAULT_MOBILE_COLS=['id','lot_number','date','cartridge','rounds_made','powder_type','powder_weight','annealed'];
-function mobileLoadCols(){
-  const v=settingsCache.mobile_load_cols;
-  return new Set(v===undefined?DEFAULT_MOBILE_COLS:v.split(',').filter(Boolean));
+// ── Column picker: one list per screen class (wide / narrow), saved in settings ──
+const narrowMQ=window.matchMedia('(max-width:700px)');
+const COL_TABLES={};
+function colScreen(){return narrowMQ.matches?'narrow':'wide';}
+function colSetting(table){return `${table}_cols_${colScreen()}`;}
+function visibleCols(table){
+  const t=COL_TABLES[table];
+  const v=settingsCache[colSetting(table)];
+  const keys=new Set(v===undefined?t.defaults[colScreen()]:v.split(',').filter(Boolean));
+  return t.defs.filter(c=>keys.has(c.key));
 }
-function applyLoadCols(){
-  const show=mobileLoadCols();
-  document.querySelectorAll('#loads-head th[data-key], #loads-body td[data-key]').forEach(el=>{
-    el.classList.toggle('col-hide',!show.has(el.dataset.key));
-  });
+function saveCols(table,keys){
+  const t=COL_TABLES[table];
+  const csv=t.defs.filter(c=>keys.has(c.key)).map(c=>c.key).join(',');
+  settingsCache[colSetting(table)]=csv;
+  api('POST','/api/settings',{[colSetting(table)]:csv}).catch(()=>snack('Could not save column choice','err'));
+  t.redraw();
 }
+function setColVisible(table,key,on){
+  const keys=new Set(visibleCols(table).map(c=>c.key));
+  if(on) keys.add(key); else keys.delete(key);
+  saveCols(table,keys);
+}
+function resetCols(table){
+  saveCols(table,new Set(COL_TABLES[table].defaults[colScreen()]));
+  const p=document.getElementById('col-picker');
+  if(p) fillColPicker(p,table);
+}
+function fillColPicker(p,table){
+  const on=new Set(visibleCols(table).map(c=>c.key));
+  p.innerHTML=`
+    <div class="cp-title">Columns<span>${narrowMQ.matches?'narrow':'wide'} screens</span></div>
+    ${COL_TABLES[table].defs.map(c=>`
+      <label><input type="checkbox" ${on.has(c.key)?'checked':''} onchange="setColVisible('${table}','${c.key}',this.checked)">${c.key==='id'?'# (ID)':c.label}</label>`).join('')}
+    <button class="btn btn-tonal btn-sm" style="margin-top:8px" onclick="resetCols('${table}')">Reset to default</button>`;
+}
+function closeColPicker(){
+  document.getElementById('col-picker')?.remove();
+  document.removeEventListener('click',colPickerOutside,true);
+  window.removeEventListener('scroll',colPickerScroll,true);
+}
+function colPickerOutside(e){
+  if(!e.target.closest('#col-picker')&&!e.target.closest('.col-picker-btn')) closeColPicker();
+}
+function colPickerScroll(e){
+  if(!(e.target.nodeType===1&&e.target.closest('#col-picker'))) closeColPicker();
+}
+function toggleColPicker(ev,table){
+  ev.stopPropagation();
+  if(document.getElementById('col-picker')){closeColPicker();return;}
+  const r=ev.currentTarget.getBoundingClientRect();
+  const p=document.createElement('div');
+  p.id='col-picker'; p.className='col-picker';
+  p.style.top=(r.bottom+4)+'px';
+  p.style.right=Math.max(8,innerWidth-r.right)+'px';
+  fillColPicker(p,table);
+  document.body.appendChild(p);
+  document.addEventListener('click',colPickerOutside,true);
+  window.addEventListener('scroll',colPickerScroll,true);
+}
+if(narrowMQ.addEventListener) narrowMQ.addEventListener('change',()=>{
+  closeColPicker();
+  Object.values(COL_TABLES).forEach(t=>t.redraw());
+});
 
+COL_TABLES.loads={defs:LOAD_COLS,defaults:LOAD_COL_DEFAULTS,redraw:()=>{
+  buildLoadsHead();
+  if(allLoads.length) renderLoads(allLoads);
+}};
+
+let loadsSortTouched=false;
 function buildLoadsHead(){
   const tr=document.getElementById('loads-head');
-  const showOnMobile=mobileLoadCols();
-  LOAD_COLS.forEach(col=>{
+  tr.innerHTML='';
+  visibleCols('loads').forEach(col=>{
     const th=document.createElement('th');
     th.dataset.key=col.key;
-    if(!showOnMobile.has(col.key)) th.classList.add('col-hide');
     if(col.key==='id') th.style.width='44px';
-    th.innerHTML=`${col.label}<span class="si material-icons-round">unfold_more</span>`;
+    const sorted=loadsSortTouched&&loadsSort.col===col.key;
+    if(sorted) th.classList.add('sorted');
+    th.innerHTML=`${col.label}<span class="si material-icons-round">${sorted?(loadsSort.dir==='asc'?'arrow_upward':'arrow_downward'):'unfold_more'}</span>`;
     th.onclick=()=>sortLoads(col.key);
     tr.appendChild(th);
   });
-  const th=document.createElement('th'); th.style.width='110px'; tr.appendChild(th);
+  const th=document.createElement('th');
+  th.style.cssText='width:110px;text-align:right';
+  th.innerHTML=`<button class="icon-btn col-picker-btn" title="Choose columns" onclick="toggleColPicker(event,'loads')"><span class="mi material-icons-round" style="font-size:20px">view_column</span></button>`;
+  tr.appendChild(th);
 }
 
 function sortLoads(key){
+  loadsSortTouched=true;
   if(loadsSort.col===key) loadsSort.dir=loadsSort.dir==='asc'?'desc':'asc';
   else{loadsSort.col=key;loadsSort.dir='asc';}
   document.querySelectorAll('#loads-head th').forEach(th=>{
@@ -1018,12 +1103,11 @@ function renderLoads(rows){
   const nd=document.getElementById('loads-empty');
   tbody.innerHTML='';
   nd.style.display=rows.length?'none':'flex';
-  const showOnMobile=mobileLoadCols();
+  const cols=visibleCols('loads');
   rows.forEach(row=>{
     const tr=document.createElement('tr');
-    LOAD_COLS.forEach(col=>{
+    cols.forEach(col=>{
       const td=document.createElement('td');
-      td.dataset.key=col.key;
       const v=row[col.key];
       if(col.key==='id'){td.className='c-id';td.textContent=v;}
       else if(col.type==='badge'){
@@ -1032,13 +1116,12 @@ function renderLoads(rows){
         if(col.type==='num') td.className='c-num';
         td.textContent=(v!=null&&v!=='')?v:'—';
       }
-      if(!showOnMobile.has(col.key)) td.classList.add('col-hide');
       tr.appendChild(td);
     });
     const atd=document.createElement('td');atd.className='c-act';
     // perf shortcut badge
     atd.innerHTML=`
-      <button class="icon-btn" title="Performance data" onclick="viewLotPerf('${row.lot_number}')" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">speed</span></button>
+      <button class="icon-btn" title="Performance data" onclick="viewLotPerf('${row.lot_number}')" style="color:var(--p)"><span class="mi ms" style="font-size:18px">target</span></button>
       <button class="icon-btn" title="Print label" onclick="printLabel(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">label</span></button>
       <button class="icon-btn" title="Edit" onclick="editLoad(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
       <button class="icon-btn" title="Delete" onclick="deleteLoad(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>`;
@@ -1212,7 +1295,7 @@ async function fetchAppSettings(){
     const s=await api('GET','/api/settings');
     labelKey=s.label_key||'';
     settingsCache=s;
-    applyLoadCols();
+    COL_TABLES.loads.redraw();
     if(allPerf.length) renderPerf(allPerf);
   }catch(e){}
 }
@@ -2053,13 +2136,6 @@ async function loadSettings(){
     setPerfUnit('speed', s.perf_speed||'fps', false);
     setPerfUnit('angle', s.perf_angle||'MOA', false);
 
-    const showOnMobile=mobileLoadCols();
-    document.getElementById('mobile-col-toggles').innerHTML=LOAD_COLS.map(c=>`
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-        <input type="checkbox" id="s-mcol-${c.key}" ${showOnMobile.has(c.key)?'checked':''} style="width:16px;height:16px;accent-color:var(--p)">
-        ${c.key==='id'?'# (ID)':c.label}
-      </label>`).join('');
-
     // Build per-field label toggles grouped by section
     const wrap=document.getElementById('label-toggles');
     wrap.innerHTML='';
@@ -2139,10 +2215,7 @@ async function saveSettings(){
   data.label_dims_mode=labelDimsMode();
   data.perf_speed=settingsCache.perf_speed||'fps';
   data.perf_angle=settingsCache.perf_angle||'MOA';
-  if(document.getElementById('s-mcol-id')){
-    data.mobile_load_cols=LOAD_COLS.filter(c=>document.getElementById('s-mcol-'+c.key)?.checked).map(c=>c.key).join(',');
-  }
-  try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};applyLoadCols();}
+  try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};}
   catch(e){snack('Error saving settings','err')}
 }
 
