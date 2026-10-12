@@ -251,34 +251,54 @@ def delete_load(lid):
     conn.close()
     return jsonify({"ok": True})
 
+GRAINS_PER_UNIT = {"lb": 7000.0, "oz": 437.5, "g": 15.4324}
+
+def _to_float(v):
+    try: return float(v)
+    except (TypeError, ValueError): return 0.0
+
+def _load_components(conn, data, rounds):
+    """Resolve each component of a load to its inventory row and the amount
+    this load consumes, in that row's own unit (row is None if not in inventory)."""
+    def s(key): return str(data.get(key) or "").strip()
+
+    def find(category, names):
+        for n in names:
+            if not n: continue
+            row = conn.execute(
+                "SELECT * FROM inventory WHERE category=? AND LOWER(name)=LOWER(?)",
+                (category, n)).fetchone()
+            if row: return row
+        return None
+
+    comps = []
+    if s("bullet_type"):
+        names = [f"{s('bullet_manufacturer')} {s('bullet_type')}".strip(), s("bullet_type")]
+        comps.append(("Bullets", s("bullet_type"), s("bullet_manufacturer"), names, float(rounds)))
+    if s("primer"):
+        comps.append(("Primers", s("primer"), "", [s("primer")], float(rounds)))
+    if s("case_type"):
+        comps.append(("Brass/Cases", s("case_type"), "", [s("case_type")], float(rounds)))
+    if s("powder_type"):
+        comps.append(("Powder", s("powder_type"), "", [s("powder_type")], None))
+
+    out = []
+    for category, name, brand, names, needed in comps:
+        row = find(category, names)
+        if category == "Powder":
+            grains = _to_float(data.get("powder_weight")) * rounds
+            # powder_weight is grains per round; convert to the item's unit (lb if unknown)
+            needed = grains / GRAINS_PER_UNIT.get(row["unit"] if row else "lb", 7000.0) if grains else None
+        out.append({"category": category, "name": name, "brand": brand, "row": row, "needed": needed})
+    return out
+
 def _decrement_inventory(conn, data, rounds):
     """Decrement inventory based on a load record."""
-    def deduct(category, name, qty):
-        if not name or qty <= 0: return
-        conn.execute("""
-            UPDATE inventory SET quantity = MAX(0, quantity - ?)
-            WHERE category=? AND LOWER(name)=LOWER(?)
-        """, (qty, category, name))
-
-    deduct("Bullets",      data.get("bullet_manufacturer","")+" "+data.get("bullet_type",""), rounds)
-    # Also try just by bullet_type
-    if data.get("bullet_type"):
-        conn.execute("""
-            UPDATE inventory SET quantity = MAX(0, quantity - ?)
-            WHERE category='Bullets' AND LOWER(name)=LOWER(?)
-        """, (rounds, data.get("bullet_type","")))
-    if data.get("primer"):
-        deduct("Primers", data.get("primer",""), rounds)
-    if data.get("case_type"):
-        deduct("Brass/Cases", data.get("case_type",""), rounds)
-    if data.get("powder_type") and data.get("powder_weight"):
-        # powder_weight is grains per round; convert total grains → lbs
-        total_grains = float(data["powder_weight"]) * rounds
-        total_lbs    = total_grains / 7000.0
-        conn.execute("""
-            UPDATE inventory SET quantity = MAX(0, quantity - ?)
-            WHERE category='Powder' AND LOWER(name)=LOWER(?)
-        """, (total_lbs, data.get("powder_type","")))
+    for c in _load_components(conn, data, rounds):
+        if c["row"] and c["needed"] and c["needed"] > 0:
+            conn.execute(
+                "UPDATE inventory SET quantity = MAX(0, quantity - ?) WHERE id=?",
+                (c["needed"], c["row"]["id"]))
 
 # ── Inventory ─────────────────────────────────────────────────
 @app.route("/api/inventory")
@@ -331,26 +351,47 @@ def delete_inventory(iid):
     conn.close()
     return jsonify({"ok": True})
 
+@app.route("/api/inventory/<int:iid>/add", methods=["POST"])
+def add_inventory_stock(iid):
+    """Add to an item's quantity, leaving every other field as it is."""
+    data = request.json or {}
+    amount = _to_float(data.get("amount"))
+    if amount <= 0:
+        return jsonify({"error": "amount must be greater than 0"}), 400
+    conn = get_db()
+    cur = conn.execute("UPDATE inventory SET quantity = ROUND(quantity + ?, 4) WHERE id=?", (amount, iid))
+    if cur.rowcount == 0:
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    conn.commit()
+    row = conn.execute("SELECT * FROM inventory WHERE id=?", (iid,)).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
 @app.route("/api/inventory/check", methods=["POST"])
 def check_inventory():
-    """Check which components from a load are missing from inventory."""
+    """Report load components that are missing from inventory, or that this
+    load would use more of than is in stock."""
     data = request.json or {}
-    missing = []
+    rounds = int(_to_float(data.get("rounds_made")))
+    check_stock = rounds > 0 and get_settings().get("auto_decrement", "1") == "1"
     conn = get_db()
-    def exists(cat, name):
-        if not name: return True
-        r = conn.execute("SELECT id FROM inventory WHERE category=? AND LOWER(name)=LOWER(?)", (cat, name)).fetchone()
-        return r is not None
-    if not exists("Bullets", data.get("bullet_type","")):
-        missing.append({"category":"Bullets","name":data.get("bullet_type",""),"brand":data.get("bullet_manufacturer","")})
-    if not exists("Primers", data.get("primer","")):
-        missing.append({"category":"Primers","name":data.get("primer","")})
-    if not exists("Brass/Cases", data.get("case_type","")):
-        missing.append({"category":"Brass/Cases","name":data.get("case_type","")})
-    if not exists("Powder", data.get("powder_type","")):
-        missing.append({"category":"Powder","name":data.get("powder_type","")})
+    issues = []
+    for c in _load_components(conn, data, rounds):
+        row = c["row"]
+        if not row:
+            issues.append({"status": "missing", "category": c["category"],
+                           "name": c["name"], "brand": c["brand"]})
+        elif check_stock and c["needed"] and (row["quantity"] or 0) < c["needed"]:
+            available = row["quantity"] or 0
+            issues.append({"status": "short", "category": c["category"],
+                           "name": row["name"], "brand": row["brand"] or "",
+                           "inventory_id": row["id"], "unit": row["unit"],
+                           "available": round(available, 4),
+                           "needed": round(c["needed"], 4),
+                           "shortfall": round(c["needed"] - available, 4)})
     conn.close()
-    return jsonify(missing)
+    return jsonify(issues)
 
 # ── Firearms ──────────────────────────────────────────────────
 @app.route("/api/firearms")

@@ -55,10 +55,6 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .icon-btn{width:38px;height:38px;border-radius:50%;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--osv);transition:background .15s,color .15s}
 .icon-btn:hover{background:var(--sfv);color:var(--p)}
 .icon-btn .mi{font-size:22px}
-.stat-pill{font-size:12px;color:var(--osv);display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--sfv);border:1px solid var(--olv);border-radius:32px;white-space:nowrap}
-.stat-pill .mi{font-size:14px;color:var(--p)}
-.stat-pill strong{color:var(--p);font-weight:500}
-@media(max-width:700px){.stat-pill{display:none}}
 
 /* ── Pages ── */
 .page{display:none;flex-direction:column;flex:1}
@@ -264,8 +260,6 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     </button>
   </div>
   <div class="nav-end">
-    <div class="stat-pill"><span class="mi material-icons-round">inventory_2</span><strong id="sn-loads">—</strong></div>
-    <div class="stat-pill"><span class="mi material-icons-round">warehouse</span><strong id="sn-inv">—</strong></div>
     <button class="icon-btn" onclick="exportCSV()" title="Export CSV"><span class="mi material-icons-round">download</span></button>
     <label class="icon-btn" title="Import CSV" style="cursor:pointer">
       <span class="mi material-icons-round">upload</span>
@@ -876,12 +870,13 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   <div class="mhdr">
     <div class="mhdr-icon"><span class="mi material-icons-round" style="color:var(--warn)">warning</span></div>
     <div class="mtitle" id="inv-prompt-title">Components Not in Inventory</div>
-    <button class="icon-btn" onclick="skipAllMissing()"><span class="mi material-icons-round">close</span></button>
+    <button class="icon-btn" onclick="cancelInvPrompt()" title="Cancel — don't create the load"><span class="mi material-icons-round">close</span></button>
   </div>
   <div class="mbody single-col" id="inv-prompt-body"></div>
-  <div class="mfooter" style="justify-content:space-between;align-items:center">
+  <div class="mfooter" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <span id="inv-prompt-counter" style="font-size:12px;color:var(--osv)"></span>
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-tonal" onclick="cancelInvPrompt()">Cancel</button>
       <button class="btn btn-tonal" onclick="skipOneMissing()">Skip this one</button>
       <button class="btn btn-tonal" onclick="skipAllMissing()">Skip all</button>
       <button class="btn btn-filled" id="inv-prompt-add-btn" onclick="addMissingToInventory()">
@@ -901,7 +896,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 // ══════════════════════════════════════════════════════════════
 let loadsSort={col:'id',dir:'desc'}, perfSort_={col:'id',dir:'desc'};
 let loadEditId=null, invEditId=null, firearmEditId=null, perfEditId=null;
-let missingComponents=[], allFirearms=[], allLoads=[];
+let allFirearms=[], allLoads=[];
 let acCache={}, settingsCache={};
 let loadsDebounce, perfDebounce;
 
@@ -930,17 +925,6 @@ async function api(method,path,body){
   return r.json();
 }
 function setLoading(on){document.getElementById('progress').classList.toggle('show',on)}
-
-// ══════════════════════════════════════════════════════════════
-// STATS
-// ══════════════════════════════════════════════════════════════
-async function fetchStats(){
-  try{
-    const s=await api('GET','/api/stats');
-    document.getElementById('sn-loads').textContent=s.total;
-    document.getElementById('sn-inv').textContent=s.inventory;
-  }catch(e){}
-}
 
 // ══════════════════════════════════════════════════════════════
 // LOADS PAGE
@@ -1094,70 +1078,88 @@ async function saveLoad(){
   const vals=getLoadFormVals();
   document.getElementById('load-save-btn').disabled=true;
   try{
-    let saved;
     if(loadEditId){
-      saved=await api('PUT',`/api/loads/${loadEditId}`,vals);
+      await api('PUT',`/api/loads/${loadEditId}`,vals);
       snack('Load updated','ok');
     }else{
-      saved=await api('POST','/api/loads',vals);
+      // Resolve missing / short inventory before the load is created
+      const issues=await api('POST','/api/inventory/check',vals);
+      if(issues.length && !(await resolveInventoryIssues(issues))) return;
+      await api('POST','/api/loads',vals);
       snack('Load added','ok');
-      // Check for missing inventory items
-      const missing=await api('POST','/api/inventory/check',vals);
-      if(missing.length){
-        missingComponents=missing;
-        showInvPrompt(missing);
-      }
     }
     closeModal('load-overlay');
-    await Promise.all([fetchLoads(),fetchStats(),fetchInventory()]);
+    await Promise.all([fetchLoads(),fetchInventory()]);
   }catch(e){snack('Error: '+e.message,'err')}
-  document.getElementById('load-save-btn').disabled=false;
+  finally{document.getElementById('load-save-btn').disabled=false;}
 }
 
-function showInvPrompt(missing){
-  missingComponents=[...missing];
-  showNextMissing();
+// Resolves true to go ahead and create the load, false if the user cancelled.
+let invIssues=[], invIssueIdx=0, invIssueDone=null;
+function resolveInventoryIssues(issues){
+  return new Promise(resolve=>{
+    invIssues=issues; invIssueIdx=0; invIssueDone=resolve;
+    showInvIssue();
+  });
 }
 
-function showNextMissing(){
-  if(!missingComponents.length){ closeModal('inv-prompt-overlay'); return; }
-  const total=missingComponents._total||missingComponents.length;
-  missingComponents._total=total;
-  const remaining=missingComponents.length;
-  const idx=total-remaining+1;
+function finishInvIssues(proceed){
+  closeModal('inv-prompt-overlay');
+  const done=invIssueDone; invIssueDone=null; invIssues=[];
+  if(done) done(proceed);
+}
 
-  const m=missingComponents[0];
+function showInvIssue(){
+  if(invIssueIdx>=invIssues.length){ finishInvIssues(true); return; }
+  const m=invIssues[invIssueIdx];
+  const label=`<strong>${m.category}</strong>: ${m.name}${m.brand?' — '+m.brand:''}`;
   const body=document.getElementById('inv-prompt-body');
-  body.innerHTML=`
-    <div class="alert alert-warn" style="margin-bottom:8px">
-      <span class="mi material-icons-round">warning</span>
-      <div><strong>${m.category}</strong>: ${m.name}${m.brand?' — '+m.brand:''} is not in your inventory.</div>
-    </div>
-    <div style="font-size:13px;color:var(--osv)">Would you like to add it now so inventory can be tracked and auto-decremented?</div>`;
-  document.getElementById('inv-prompt-title').textContent='Missing Component';
-  document.getElementById('inv-prompt-counter').textContent=`Item ${idx} of ${total}`;
+  const btn=document.getElementById('inv-prompt-add-btn');
+  if(m.status==='short'){
+    body.innerHTML=`
+      <div class="alert alert-warn" style="margin-bottom:8px">
+        <span class="mi material-icons-round">warning</span>
+        <div>${label}<br>This load needs <strong>${m.needed} ${m.unit}</strong> but inventory shows <strong>${m.available} ${m.unit}</strong>.</div>
+      </div>
+      <div style="font-size:13px;color:var(--osv);margin-bottom:10px">Haven't updated inventory yet? Add what you have now. Only the quantity changes; the rest of the item stays the same.</div>
+      <div class="field"><input class="finput" type="number" step="any" min="0" id="inv-prompt-amount" placeholder=" " value="${m.shortfall}"><label class="flabel">Amount to add (${m.unit})</label></div>`;
+    document.getElementById('inv-prompt-title').textContent='Not Enough in Inventory';
+    btn.innerHTML='<span class="mi material-icons-round">add</span>Add Stock';
+  }else{
+    body.innerHTML=`
+      <div class="alert alert-warn" style="margin-bottom:8px">
+        <span class="mi material-icons-round">warning</span>
+        <div>${label} is not in your inventory.</div>
+      </div>
+      <div style="font-size:13px;color:var(--osv)">Would you like to add it now so inventory can be tracked and auto-decremented?</div>`;
+    document.getElementById('inv-prompt-title').textContent='Missing Component';
+    btn.innerHTML='<span class="mi material-icons-round">add</span>Add to Inventory';
+  }
+  document.getElementById('inv-prompt-counter').textContent=`Item ${invIssueIdx+1} of ${invIssues.length}`;
   openModal('inv-prompt-overlay');
 }
 
-function skipOneMissing(){
-  missingComponents.shift();
-  if(missingComponents.length) showNextMissing();
-  else closeModal('inv-prompt-overlay');
-}
+function skipOneMissing(){ invIssueIdx++; showInvIssue(); }
+function skipAllMissing(){ finishInvIssues(true); }
+function cancelInvPrompt(){ finishInvIssues(false); }
 
-function skipAllMissing(){
-  missingComponents=[];
-  closeModal('inv-prompt-overlay');
-}
-
-function addMissingToInventory(){
-  if(!missingComponents.length){ closeModal('inv-prompt-overlay'); return; }
-  const m=missingComponents.shift();
-  closeModal('inv-prompt-overlay');
-  // After saving the inventory item, continue prompting for the rest
-  openInvModal({category:m.category, name:m.name, brand:m.brand||'', _onSave:()=>{
-    if(missingComponents.length) setTimeout(showNextMissing, 300);
-  }});
+async function addMissingToInventory(){
+  const m=invIssues[invIssueIdx];
+  if(!m) return;
+  if(m.status==='short'){
+    const amt=parseFloat(document.getElementById('inv-prompt-amount').value);
+    if(!(amt>0)){ snack('Enter an amount greater than 0','err'); return; }
+    try{
+      await api('POST',`/api/inventory/${m.inventory_id}/add`,{amount:amt});
+      snack(`Added ${amt} ${m.unit} to ${m.name}`,'ok');
+    }catch(e){ snack('Error: '+e.message,'err'); return; }
+    invIssueIdx++; showInvIssue();
+  }else{
+    closeModal('inv-prompt-overlay');
+    openInvModal({category:m.category, name:m.name, brand:m.brand||'',
+      _onSave:()=>{ invIssueIdx++; setTimeout(showInvIssue,300); },
+      _onCancel:()=>{ showInvIssue(); }});
+  }
 }
 
 async function editLoad(id){
@@ -1167,7 +1169,7 @@ async function editLoad(id){
 
 async function deleteLoad(id){
   if(!confirm('Delete this load? This cannot be undone.')) return;
-  try{await api('DELETE',`/api/loads/${id}`);snack('Load deleted','ok');await Promise.all([fetchLoads(),fetchStats()]);}
+  try{await api('DELETE',`/api/loads/${id}`);snack('Load deleted','ok');await fetchLoads();}
   catch(e){snack('Error: '+e.message,'err')}
 }
 
@@ -1342,10 +1344,11 @@ function fillPowderFields(caliber){
   if(parts[1]) document.getElementById('inv-powder-use').value=parts[1];
 }
 
-let invSaveCallback=null;
+let invSaveCallback=null, invCancelCallback=null;
 function openInvModal(prefill){
   invEditId=null;
   invSaveCallback=prefill?._onSave||null;
+  invCancelCallback=prefill?._onCancel||null;
   clearInvForm();
   document.getElementById('inv-modal-title').textContent='Add Inventory Item';
   document.getElementById('inv-save-text').textContent='Add Item';
@@ -1407,9 +1410,10 @@ async function saveInventory(){
     if(invEditId) await api('PUT',`/api/inventory/${invEditId}`,data);
     else await api('POST','/api/inventory',data);
     snack(invEditId?'Item updated':'Item added','ok');
+    const cb=invSaveCallback; invSaveCallback=null; invCancelCallback=null;
     closeModal('inv-overlay');
     await fetchInventory();
-    if(invSaveCallback){ const cb=invSaveCallback; invSaveCallback=null; cb(); }
+    if(cb) cb();
   }catch(e){snack('Error: '+e.message,'err')}
   document.getElementById('inv-save-btn').disabled=false;
 }
@@ -2150,7 +2154,13 @@ function refreshLotDatalist(){
 // MODAL HELPERS
 // ══════════════════════════════════════════════════════════════
 function openModal(id){document.getElementById(id).classList.add('open')}
-function closeModal(id){document.getElementById(id).classList.remove('open')}
+function closeModal(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='inv-overlay'){
+    const cancel=invCancelCallback; invCancelCallback=null; invSaveCallback=null;
+    if(cancel) cancel();
+  }
+}
 function overlayClick(e,id){if(e.target===document.getElementById(id)) closeModal(id)}
 document.addEventListener('keydown',e=>{if(e.key==='Escape') document.querySelectorAll('.overlay.open').forEach(o=>o.classList.remove('open'))});
 
@@ -2183,7 +2193,7 @@ function exportCSV(){window.location.href='/api/export'}
 async function importCSV(e){
   const file=e.target.files[0];if(!file) return;
   const form=new FormData();form.append('file',file);
-  try{const r=await fetch('/api/import',{method:'POST',body:form});const d=await r.json();snack(`Imported ${d.imported} records`,'ok');await Promise.all([fetchLoads(),fetchStats()]);}
+  try{const r=await fetch('/api/import',{method:'POST',body:form});const d=await r.json();snack(`Imported ${d.imported} records`,'ok');await fetchLoads();}
   catch(e){snack('Import failed','err')}
   e.target.value='';
 }
@@ -2368,7 +2378,7 @@ function drawCmpCanvas(cvId, sessions, allShots, showSighters){
 
 // ══ Init ══════════════════════════════════════════════════════
 buildLoadsHead();
-Promise.all([fetchLoads(),fetchFirearms(),fetchStats(),fetchAC(),fetchLabelKey()]);
+Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchLabelKey()]);
 </script>
 
 
