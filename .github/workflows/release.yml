@@ -1,0 +1,33 @@
+name: Release Tarball
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version number
+        id: ver
+        run: echo "num=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build tarball
+        run: |
+          tar -cf reloading-app_${{ steps.ver.outputs.num }}.tar \
+            app.py sm_decode.py requirements.txt Dockerfile \
+            docker-compose.yml nginx.conf static/
+          sha256sum reloading-app_${{ steps.ver.outputs.num }}.tar | tee sha256.txt
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "reloading-app v${{ steps.ver.outputs.num }}"
+          body_path: sha256.txt
+          files: reloading-app_${{ steps.ver.outputs.num }}.tar

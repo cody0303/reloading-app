@@ -3,11 +3,10 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && \
-    rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
+COPY sm_decode.py .
 COPY static/ ./static/
 
 # SQLite database lives on a named volume so data persists across container restarts

@@ -341,6 +341,12 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     </div>
     <button class="btn btn-text btn-sm" onclick="clearPerfFilter()"><span class="mi material-icons-round">filter_alt_off</span>Clear</button>
   </div>
+  <div id="perf-sel-bar" style="display:none;background:var(--pc);border-bottom:1px solid var(--ol);padding:8px 16px;display:none;align-items:center;gap:10px;font-size:13px;color:var(--p)">
+    <span class="mi material-icons-round" style="font-size:18px">check_circle</span>
+    <span><span id="perf-sel-bar-count">0</span> sessions selected</span>
+    <button class="btn btn-filled btn-sm" style="margin-left:8px" onclick="openCompare()"><span class="mi material-icons-round">compare</span>Compare</button>
+    <button class="btn btn-text btn-sm" onclick="clearPerfSelection()"><span class="mi material-icons-round">close</span>Cancel</button>
+  </div>
   <div style="margin:12px;padding-bottom:80px">
     <div class="card table-wrap">
       <table>
@@ -351,9 +357,12 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
           <th onclick="perfSort('distance')">Distance<span class="si material-icons-round">unfold_more</span></th>
           <th onclick="perfSort('avg_velocity')">Avg Vel<span class="si material-icons-round">unfold_more</span></th>
           <th onclick="perfSort('std_dev')">SD<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('extreme_spread')" class="col-hide">ES<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('extreme_spread')" class="col-hide">Vel ES<span class="si material-icons-round">unfold_more</span></th>
           <th onclick="perfSort('group_size')">Group<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('group_x')" class="col-hide">Grp X<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('group_y')" class="col-hide">Grp Y<span class="si material-icons-round">unfold_more</span></th>
           <th onclick="perfSort('num_shots')" class="col-hide">Shots<span class="si material-icons-round">unfold_more</span></th>
+          <th onclick="perfSort('position')" class="col-hide">Position<span class="si material-icons-round">unfold_more</span></th>
           <th></th>
         </tr></thead>
         <tbody id="perf-body"></tbody>
@@ -361,7 +370,46 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <div class="no-data" id="perf-empty"><span class="mi material-icons-round">speed</span><p>No performance data yet</p></div>
     </div>
   </div>
-  <button class="fab" onclick="openPerfModal()"><span class="mi material-icons-round">add</span>Add Session</button>
+  <button class="fab" onclick="openPerfModal()" id="perf-add-fab"><span class="mi material-icons-round">add</span>Add Session</button>
+  <!-- Selection mode FAB (mobile) -->
+  <button class="fab" id="perf-compare-fab" style="display:none;background:var(--p)" onclick="openCompare()">
+    <span class="mi material-icons-round">compare</span>Compare (<span id="perf-sel-count">0</span>)
+  </button>
+</div>
+
+<!-- Compare Modal -->
+<div class="overlay modal-lg" id="compare-overlay" onclick="overlayClick(event,'compare-overlay')">
+<div class="modal" style="max-width:900px;width:98vw;max-height:96vh">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">compare</span></div>
+    <div class="mtitle">Session Comparison</div>
+    <button class="icon-btn" onclick="closeModal('compare-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div style="padding:10px 16px;border-bottom:1px solid var(--olv);display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--sfv)">
+    <!-- View toggle -->
+    <div style="display:flex;border:1px solid var(--ol);border-radius:20px;overflow:hidden;flex-shrink:0">
+      <button id="cmp-btn-overlay" onclick="setCmpMode('overlay')"
+        style="padding:5px 14px;font-size:12px;border:none;cursor:pointer;font-family:inherit;background:var(--p);color:var(--op);transition:background .15s">Overlay</button>
+      <button id="cmp-btn-side" onclick="setCmpMode('side')"
+        style="padding:5px 14px;font-size:12px;border:none;cursor:pointer;font-family:inherit;background:transparent;color:var(--osv);transition:background .15s">Side by side</button>
+    </div>
+    <!-- Sighter toggle -->
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--osv);cursor:pointer">
+      <input type="checkbox" id="cmp-sighters" onchange="renderCompare()" style="cursor:pointer">
+      Show sighters
+    </label>
+    <!-- Session pills -->
+    <div id="cmp-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto"></div>
+    <!-- Mismatch warning -->
+    <div id="cmp-warn" style="display:none;width:100%;font-size:12px;padding:6px 10px;border-radius:var(--rsm);background:var(--warnc);color:var(--warn)">
+      <span class="mi material-icons-round" style="font-size:14px;vertical-align:-2px">warning</span>
+      <span id="cmp-warn-text"></span>
+    </div>
+  </div>
+  <div class="mbody" style="padding:0;display:block;overflow-y:auto;-webkit-overflow-scrolling:touch">
+    <div id="cmp-content" style="padding:12px"></div>
+  </div>
+</div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
@@ -376,6 +424,20 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     </div>
   </div>
   <div class="settings-wrap">
+
+    <!-- Backup & Restore -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">backup</span>Backup & Restore</h3>
+      <div class="toggle-row" style="border-bottom:none">
+        <div>
+          <div class="toggle-label">Download database backup</div>
+          <div class="toggle-sub">Downloads the complete SQLite database — all loads, inventory, firearms, performance, settings, and ShotMarker data.</div>
+        </div>
+        <a class="btn btn-tonal btn-sm" href="/api/backup" download="reloading_backup.db" style="text-decoration:none">
+          <span class="mi material-icons-round">download</span>Backup
+        </a>
+      </div>
+    </div>
 
     <!-- Label settings -->
     <div class="settings-card">
@@ -405,6 +467,17 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
         <div class="fl" style="margin-bottom:8px">Label Sections (show / hide)</div>
         <div id="label-toggles"></div>
       </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--olv)">
+        <div class="toggle-row" style="border-bottom:none">
+          <div>
+            <div class="toggle-label">Public Label Access Key</div>
+            <div class="toggle-sub">Allows label PDFs to be downloaded without login (needed for direct printing apps). Regenerating invalidates old links.</div>
+          </div>
+          <button class="btn btn-tonal btn-sm" onclick="regenerateLabelKey()">
+            <span class="mi material-icons-round">refresh</span>Regenerate
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Inventory settings -->
@@ -420,6 +493,36 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
           <div class="toggle-track"></div>
           <div class="toggle-thumb"></div>
         </label>
+      </div>
+    </div>
+
+    <!-- Performance settings -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">speed</span>Performance Data</h3>
+      <div class="settings-grid" style="margin-bottom:14px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="fl">Velocity / Speed</div>
+          <div class="unit-toggle" id="perf-speed-toggle">
+            <button id="pu-fps" onclick="setPerfUnit('speed','fps')">fps</button>
+            <button id="pu-ms"  onclick="setPerfUnit('speed','m/s')">m/s</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div class="fl">Angular (group size, ES)</div>
+          <div class="unit-toggle" id="perf-angle-toggle">
+            <button id="pu-moa" onclick="setPerfUnit('angle','MOA')">MOA</button>
+            <button id="pu-mil" onclick="setPerfUnit('angle','mil')">mil</button>
+          </div>
+        </div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--olv);padding-top:12px;border-bottom:none">
+        <div>
+          <div class="toggle-label">Recalculate stats from shots</div>
+          <div class="toggle-sub">Recomputes velocity stats and group sizes for every performance record that has ShotMarker data stored.</div>
+        </div>
+        <button class="btn btn-tonal btn-sm" onclick="recalculatePerformance()">
+          <span class="mi material-icons-round">refresh</span>Recalculate
+        </button>
       </div>
     </div>
 
@@ -476,6 +579,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     </div>
     <div class="field"><input class="finput" id="m-primer" placeholder=" " list="dl-primer"><label class="flabel">Primer</label><datalist id="dl-primer"></datalist></div>
     <div class="field"><input class="finput" type="number" id="m-number_of_loads" placeholder=" "><label class="flabel">Times Brass Fired</label></div>
+    <div class="field"><input class="finput" type="number" step=".001" id="m-base_to_ogive" placeholder=" "><label class="flabel">Base to Ogive</label></div>
   </div>
   <div class="mfooter">
     <button class="btn btn-tonal" onclick="closeModal('load-overlay')">Cancel</button>
@@ -642,42 +746,111 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 
 <!-- Performance Modal -->
 <div class="overlay modal-lg" id="perf-overlay" onclick="overlayClick(event,'perf-overlay')">
-<div class="modal">
+<div class="modal" id="perf-modal-inner" style="max-height:92vh;display:flex;flex-direction:column">
   <div class="mhdr">
     <div class="mhdr-icon"><span class="mi material-icons-round">speed</span></div>
     <div class="mtitle" id="perf-modal-title">Add Performance Session</div>
     <button class="icon-btn" onclick="closeModal('perf-overlay')"><span class="mi material-icons-round">close</span></button>
   </div>
-  <div class="mbody">
-    <div class="field"><input class="finput" id="pf-lot" placeholder=" " list="dl-perf-lot"><label class="flabel">Lot Number</label><datalist id="dl-perf-lot"></datalist></div>
-    <div class="field">
-      <select class="fselect" id="pf-firearm"><option value="">— select firearm —</option></select>
-      <label class="flabel">Firearm</label>
+
+  <!-- ShotMarker import strip -->
+  <div style="padding:10px 16px;border-bottom:1px solid var(--olv);background:var(--sfv);display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:20px">my_location</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500">Import from ShotMarker</div>
+      <div style="font-size:11px;color:var(--osv)" id="pf-sm-status">Upload an archive to auto-fill date, distance, and shot data</div>
     </div>
-    <div class="field"><input class="finput" type="date" id="pf-date" placeholder=" "><label class="flabel">Date</label></div>
-    <div class="field"><input class="finput" type="number" id="pf-shots" placeholder=" "><label class="flabel">Number of Shots</label></div>
-    <div class="f-section">Distance</div>
-    <div class="field"><input class="finput" type="number" step=".1" id="pf-dist" placeholder=" "><label class="flabel">Distance</label></div>
-    <div class="field">
-      <select class="fselect" id="pf-dist-unit"><option value="yd">yards</option><option value="m">meters</option></select>
-      <label class="flabel">Unit</label>
-    </div>
-    <div class="f-section">Velocity (fps)</div>
-    <div class="field"><input class="finput" type="number" step=".1" id="pf-vel" placeholder=" "><label class="flabel">Average Velocity</label></div>
-    <div class="field"><input class="finput" type="number" step=".1" id="pf-sd" placeholder=" "><label class="flabel">Std Deviation</label></div>
-    <div class="field f-full"><input class="finput" type="number" step=".1" id="pf-es" placeholder=" "><label class="flabel">Extreme Spread</label></div>
-    <div class="f-section">Group Size</div>
-    <div class="field"><input class="finput" type="number" step=".001" id="pf-group" placeholder=" "><label class="flabel">Group Size</label></div>
-    <div class="field">
-      <select class="fselect" id="pf-group-unit"><option value="MOA">MOA</option><option value="Mil">Mil</option></select>
-      <label class="flabel">Unit</label>
-    </div>
-    <div class="field f-full"><textarea class="ftextarea" id="pf-notes" placeholder="Notes…"></textarea></div>
+    <label class="btn btn-tonal btn-sm" style="cursor:pointer;margin:0">
+      <span class="mi material-icons-round">upload_file</span>
+      <span id="pf-sm-btn-text">Choose archive…</span>
+      <input type="file" accept=".tar" id="pf-sm-file" style="display:none" onchange="pfImportShotMarker(event)">
+    </label>
+    <button class="btn btn-text btn-sm" id="pf-sm-clear" style="display:none" onclick="pfClearShotMarker()">
+      <span class="mi material-icons-round">close</span>Clear
+    </button>
   </div>
+
+  <!-- Everything below header scrolls as one region -->
+  <div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
+
+    <!-- Session picker (multi-session archives) -->
+    <div id="pf-sm-sessions" style="display:none;padding:10px 16px;border-bottom:1px solid var(--olv);background:var(--sfv)">
+      <div style="font-size:11px;color:var(--osv);margin-bottom:6px;font-weight:500;text-transform:uppercase;letter-spacing:.8px">Multiple sessions found — select one:</div>
+      <div id="pf-sm-session-list" style="display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+
+    <!-- Shot selector (shown after session is picked) -->
+    <div id="pf-shot-selector" style="display:none;border-bottom:1px solid var(--olv)">
+      <!-- Two-column: canvas left, list right. Heights matched by JS. -->
+      <div style="display:flex;align-items:stretch" id="pf-selector-row">
+        <!-- Left: target canvas — height set by JS to match right column -->
+        <div style="position:relative;flex:1 1 0;min-width:0;background:#f0ede8;overflow:hidden" id="pf-canvas-wrap">
+          <canvas id="pf-sm-canvas" style="position:absolute;inset:0;width:100%;height:100%;cursor:grab"></canvas>
+        </div>
+        <!-- Right: toolbar + scrollable shot list + stats — natural height -->
+        <div style="width:200px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid var(--olv)" id="pf-list-col">
+          <div style="padding:6px 10px;background:var(--sfv);border-bottom:1px solid var(--olv);display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex-shrink:0">
+            <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfSelAll(true)">All</button>
+            <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfSelAll(false)">None</button>
+            <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfSelType(false)">Rec</button>
+            <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfSelType(true)">Sght</button>
+            <span id="pf-sel-count" style="font-size:11px;color:var(--osv);width:100%;margin-top:2px"></span>
+          </div>
+          <!-- Shot list: max 50vh so it doesn't grow unbounded, but enough to be useful -->
+          <div id="pf-shot-list" style="max-height:50vh;overflow-y:auto;background:var(--sf)"></div>
+          <div id="pf-live-stats" style="padding:6px 10px;background:var(--sfv);border-top:1px solid var(--olv);font-size:11px;color:var(--osv);display:flex;flex-direction:column;gap:2px;flex-shrink:0"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form fields -->
+    <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><input class="finput" id="pf-lot" placeholder=" " list="dl-perf-lot"><label class="flabel">Lot Number</label><datalist id="dl-perf-lot"></datalist></div>
+      <div class="field">
+        <select class="fselect" id="pf-firearm"><option value="">— select firearm —</option></select>
+        <label class="flabel">Firearm</label>
+      </div>
+      <div class="field"><input class="finput" type="date" id="pf-date" placeholder=" "><label class="flabel">Date</label></div>
+      <div class="field"><input class="finput" type="number" id="pf-shots" placeholder=" "><label class="flabel">Number of Shots</label></div>
+      <div class="field f-full">
+        <select class="fselect" id="pf-position">
+          <option value="">— position —</option>
+          <option value="Standing, unsupported">Standing, unsupported</option>
+          <option value="Standing, sling supported">Standing, sling supported</option>
+          <option value="Seated">Seated</option>
+          <option value="Prone, sling supported">Prone, sling supported</option>
+          <option value="Prone, supported">Prone, supported</option>
+          <option value="Obstacle">Obstacle</option>
+        </select>
+        <label class="flabel">Position</label>
+      </div>
+      <div class="f-section">Distance</div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-dist" placeholder=" "><label class="flabel">Distance</label></div>
+      <div class="field">
+        <select class="fselect" id="pf-dist-unit"><option value="yd">yards</option><option value="m">meters</option></select>
+        <label class="flabel">Unit</label>
+      </div>
+      <div class="f-section">Velocity (fps) — auto-filled from ShotMarker</div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-vel" placeholder=" "><label class="flabel">Average Velocity</label></div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-sd" placeholder=" "><label class="flabel">Std Deviation</label></div>
+      <div class="field f-full"><input class="finput" type="number" step=".1" id="pf-es" placeholder=" "><label class="flabel">Extreme Spread (fps)</label></div>
+      <div class="f-section">Group Size — auto-filled from ShotMarker; or enter manually</div>
+      <div class="field"><input class="finput" type="number" step=".001" id="pf-group" placeholder=" "><label class="flabel">Group Size (max C-to-C)</label></div>
+      <div class="field">
+        <select class="fselect" id="pf-group-unit"><option value="MOA">MOA</option><option value="Mil">Mil</option></select>
+        <label class="flabel">Unit</label>
+      </div>
+      <div class="field"><input class="finput" type="number" step=".001" id="pf-group-x" placeholder=" "><label class="flabel">Group X (horizontal)</label></div>
+      <div class="field"><input class="finput" type="number" step=".001" id="pf-group-y" placeholder=" "><label class="flabel">Group Y (vertical)</label></div>
+      <div class="field f-full"><textarea class="ftextarea" id="pf-notes" placeholder="Notes…"></textarea></div>
+    </div>
+
+  </div><!-- end scrollable region -->
+
   <div class="mfooter">
     <button class="btn btn-tonal" onclick="closeModal('perf-overlay')">Cancel</button>
     <button class="btn btn-filled" id="pf-save-btn" onclick="savePerformance()">
-      <span class="mi material-icons-round">add</span><span id="pf-save-text">Add Session</span>
+      <span class="mi material-icons-round">save</span><span id="pf-save-text">Save Session</span>
     </button>
   </div>
 </div>
@@ -881,7 +1054,7 @@ async function openLoadModal(data){
 
 function clearLoadForm(){
   ['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
-   'case_type','powder_type','powder_weight','cartridge_length','brass_length','primer','number_of_loads'].forEach(k=>{
+   'case_type','powder_type','powder_weight','cartridge_length','brass_length','primer','number_of_loads','base_to_ogive'].forEach(k=>{
     const el=document.getElementById('m-'+k);if(el) el.value='';
   });
   document.getElementById('m-annealed').value='';
@@ -889,7 +1062,7 @@ function clearLoadForm(){
 
 function fillLoadForm(row){
   ['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
-   'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads'].forEach(k=>{
+   'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads','base_to_ogive'].forEach(k=>{
     const el=document.getElementById('m-'+k);
     if(el&&row[k]!=null) el.value=row[k];
   });
@@ -897,7 +1070,7 @@ function fillLoadForm(row){
 
 function getLoadFormVals(){
   const keys=['lot_number','date','cartridge','rounds_made','bullet_manufacturer','bullet_type','bullet_weight',
-    'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads'];
+    'case_type','powder_type','powder_weight','cartridge_length','brass_length','annealed','primer','number_of_loads','base_to_ogive'];
   const vals={};
   keys.forEach(k=>{vals[k]=document.getElementById('m-'+k)?.value||null;});
   return vals;
@@ -984,12 +1157,20 @@ async function deleteLoad(id){
   catch(e){snack('Error: '+e.message,'err')}
 }
 
-function printLabel(id){
-  const a=document.createElement('a');
-  a.href=`/api/loads/${id}/label`;
-  a.download=`label_${id}.png`;
-  a.click();
+let labelKey='';
+async function regenerateLabelKey(){
+  if(!confirm('This will invalidate any saved label links. Continue?')) return;
+  try{
+    const newKey=crypto.randomUUID().replace(/-/g,'');
+    await api('POST','/api/settings',{label_key:newKey});
+    labelKey=newKey;
+    snack('Label key regenerated','ok');
+  }catch(e){snack('Error regenerating key','err')}
 }
+async function fetchLabelKey(){
+  try{const s=await api('GET','/api/settings');labelKey=s.label_key||'';}catch(e){}
+}
+function printLabel(id){window.open(`/api/loads/${id}/label?key=${encodeURIComponent(labelKey)}`,'_blank')}
 
 // ══════════════════════════════════════════════════════════════
 // INVENTORY PAGE
@@ -1356,6 +1537,39 @@ async function fetchPerformance(){
   setLoading(false);
 }
 
+let perfSelected=new Set(), perfSelMode=false, perfLongPressTimer=null;
+const CMP_COLORS=['#185FA5','#993C1D','#0F6E56','#533AB7'];
+
+function updatePerfSelUI(){
+  const n=perfSelected.size;
+  const bar=document.getElementById('perf-sel-bar');
+  const addFab=document.getElementById('perf-add-fab');
+  const cmpFab=document.getElementById('perf-compare-fab');
+  const cnt=document.getElementById('perf-sel-count');
+  const barcnt=document.getElementById('perf-sel-bar-count');
+  if(bar) { bar.style.display=n>0?'flex':'none'; if(barcnt) barcnt.textContent=n; }
+  if(cnt) cnt.textContent=n;
+  if(addFab) addFab.style.display=n>0?'none':'flex';
+  if(cmpFab) cmpFab.style.display=n>0?'flex':'none';
+  document.querySelectorAll('#perf-body tr').forEach(tr=>{
+    const id=parseInt(tr.dataset.id);
+    tr.style.background=perfSelected.has(id)?'rgba(21,101,192,0.08)':'';
+    tr.style.userSelect=n>0?'none':'';  // prevent text selection during row selection
+  });
+}
+
+function clearPerfSelection(){
+  perfSelected.clear(); perfSelMode=false;
+  updatePerfSelUI();
+}
+
+function perfToggleRow(id){
+  if(perfSelected.has(id)) perfSelected.delete(id);
+  else if(perfSelected.size<4) perfSelected.add(id);
+  else { snack('Max 4 sessions','warn'); return; }
+  updatePerfSelUI();
+}
+
 function renderPerf(rows){
   const tbody=document.getElementById('perf-body');
   const nd=document.getElementById('perf-empty');
@@ -1363,22 +1577,52 @@ function renderPerf(rows){
   nd.style.display=rows.length?'none':'flex';
   rows.forEach(row=>{
     const tr=document.createElement('tr');
+    tr.dataset.id=row.id;
+    tr.style.cursor='pointer';
     tr.innerHTML=`
-      <td><button class="badge badge-blue" onclick="viewLotLoads('${row.lot_number}')">${row.lot_number||'—'}</button></td>
+      <td><button class="badge badge-blue" onclick="event.stopPropagation();viewLotLoads('${row.lot_number}')">${row.lot_number||'—'}</button></td>
       <td>${row.firearm_name||'—'}</td>
       <td class="c-num col-hide">${row.date||'—'}</td>
       <td class="c-num">${row.distance?row.distance+' '+row.distance_unit:'—'}</td>
-      <td class="c-num">${row.avg_velocity?row.avg_velocity+' fps':'—'}</td>
-      <td class="c-num">${row.std_dev||'—'}</td>
-      <td class="c-num col-hide">${row.extreme_spread||'—'}</td>
+      <td class="c-num">${row.avg_velocity?fmtVel(row.avg_velocity):'—'}</td>
+      <td class="c-num">${row.std_dev?fmtVel(row.std_dev):'—'}</td>
+      <td class="c-num col-hide">${row.extreme_spread?fmtVel(row.extreme_spread):'—'}</td>
       <td class="c-num">${row.group_size?row.group_size+' '+row.group_unit:'—'}</td>
+      <td class="c-num col-hide">${row.group_x?row.group_x+' '+row.group_unit:'—'}</td>
+      <td class="c-num col-hide">${row.group_y?row.group_y+' '+row.group_unit:'—'}</td>
       <td class="c-num col-hide">${row.num_shots||'—'}</td>
+      <td class="c-num col-hide">${(()=>{const m={'Standing, unsupported':'Stand','Standing, sling supported':'Stand sling','Seated':'Seated','Prone, sling supported':'Prone sling','Prone, supported':'Prone supp','Obstacle':'Obstacle'};return row.position?m[row.position]||row.position:'—';})()}</td>
       <td class="c-act">
-        <button class="icon-btn" title="Edit" onclick="editPerformance(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
-        <button class="icon-btn" title="Delete" onclick="deletePerformance(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
+        <button class="icon-btn" title="ShotMarker" onclick="event.stopPropagation();openShotViewer(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">my_location</span></button>
+        <button class="icon-btn" title="Edit" onclick="event.stopPropagation();editPerformance(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+        <button class="icon-btn" title="Delete" onclick="event.stopPropagation();deletePerformance(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
       </td>`;
+    // Desktop: shift-click OR plain click in selection mode to toggle
+    tr.onclick=ev=>{
+      if(ev.shiftKey||perfSelMode){
+        ev.preventDefault();
+        window.getSelection()?.removeAllRanges(); // prevent text highlight
+        perfToggleRow(row.id);
+      }
+    };
+    // Mobile: long-press to enter selection mode; tap to toggle once in mode
+    let touchMoved=false;
+    tr.addEventListener('touchstart',e=>{
+      touchMoved=false;
+      if(perfSelMode){
+        // Already in selection mode — tap toggles immediately
+        perfLongPressTimer=setTimeout(()=>{ if(!touchMoved) perfToggleRow(row.id); },80);
+      } else {
+        perfLongPressTimer=setTimeout(()=>{
+          if(!touchMoved){ perfSelMode=true; perfToggleRow(row.id); snack('Tap to select sessions, tap again to deselect','ok'); }
+        },500);
+      }
+    },{passive:true});
+    tr.addEventListener('touchend',()=>clearTimeout(perfLongPressTimer),{passive:true});
+    tr.addEventListener('touchmove',()=>{ touchMoved=true; clearTimeout(perfLongPressTimer); },{passive:true});
     tbody.appendChild(tr);
   });
+  updatePerfSelUI();
 }
 
 function viewLotLoads(lot){
@@ -1386,13 +1630,261 @@ function viewLotLoads(lot){
   navigate('loads');
 }
 
+let pfSmSessions=[], pfSmSelected=null;
+
+function pfResetSmUI(){
+  pfSmSessions=[]; pfSmSelected=null; pfShotSelected=new Set(); pfLastShotClick=null;
+  document.getElementById('pf-sm-status').textContent='Upload an archive to auto-fill date, distance, and shot data';
+  document.getElementById('pf-sm-btn-text').textContent='Choose archive…';
+  document.getElementById('pf-sm-clear').style.display='none';
+  document.getElementById('pf-sm-sessions').style.display='none';
+  document.getElementById('pf-shot-selector').style.display='none';
+  const _mi2=document.getElementById('perf-modal-inner');
+  if(_mi2) _mi2.style.maxWidth='';
+  pfCanvasCtrl=null;
+  document.getElementById('pf-sm-file').value='';
+}
+
+function pfClearShotMarker(){
+  pfResetSmUI();
+}
+
+async function pfImportShotMarker(event){
+  const file=event.target.files[0]; if(!file) return;
+  document.getElementById('pf-sm-status').textContent='Decoding…';
+  document.getElementById('pf-sm-btn-text').textContent='Uploading…';
+  const form=new FormData(); form.append('file',file);
+  try{
+    const sessions=await fetch('/api/shotmarker/upload',{method:'POST',body:form}).then(r=>{
+      if(!r.ok) return r.json().then(d=>{throw new Error(d.error||'Upload failed');});
+      return r.json();
+    });
+    pfSmSessions=sessions;
+    document.getElementById('pf-sm-btn-text').textContent='Change archive';
+    document.getElementById('pf-sm-clear').style.display='';
+
+    if(sessions.length===1){
+      pfApplySession(sessions[0]);
+    } else if(sessions.length>1){
+      // Show session picker
+      const list=document.getElementById('pf-sm-session-list');
+      list.innerHTML=sessions.map((s,i)=>{
+        const rec=s.shots.filter(sh=>!sh.sighter).length;
+        const score=s.group_text||'';
+        return `<button onclick="pfApplySession(pfSmSessions[${i}])" style="text-align:left;background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);padding:8px 12px;cursor:pointer;font-family:inherit;font-size:13px;transition:background .15s;width:100%" onmouseover="this.style.background='var(--sfv)'" onmouseout="this.style.background='var(--sf)'">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <strong>${s.name||'Session '+(i+1)}</strong>
+            <span style="color:var(--osv);font-size:12px">${s.distance}${s.dist_unit==='y'?'yd':'m'}</span>
+            <span style="color:var(--osv);font-size:12px">${rec} shots</span>
+            ${score?`<span style="color:var(--p);font-size:12px;font-weight:500">${score}</span>`:''}
+            <span style="color:var(--osv);font-size:11px;margin-left:auto">${s.face_id}</span>
+          </div>
+        </button>`;
+      }).join('');
+      document.getElementById('pf-sm-sessions').style.display='';
+      document.getElementById('pf-sm-status').textContent=`${sessions.length} sessions found — select one below`;
+    }
+  }catch(e){
+    document.getElementById('pf-sm-status').textContent='Error: '+e.message;
+    document.getElementById('pf-sm-btn-text').textContent='Try again';
+    snack(e.message,'err');
+  }
+}
+
+let pfShotSelected=new Set(), pfLastShotClick=null;
+
+function pfApplySession(session){
+  pfSmSelected=session;
+  document.getElementById('pf-sm-sessions').style.display='none';
+
+  // Auto-fill date and distance
+  const today=new Date().toISOString().slice(0,10);
+  if(!document.getElementById('pf-date').value)
+    document.getElementById('pf-date').value=today;
+  if(session.distance){
+    document.getElementById('pf-dist').value=session.distance;
+    document.getElementById('pf-dist-unit').value=session.dist_unit==='y'?'yd':'m';
+  }
+
+  // Default: select all record shots
+  pfShotSelected=new Set(session.shots.map((_,i)=>i).filter(i=>!session.shots[i].sighter));
+  pfLastShotClick=null;
+
+  // Show shot selector
+  document.getElementById('pf-shot-selector').style.display='';
+  const _mi=document.getElementById('perf-modal-inner');
+  if(_mi) _mi.style.maxWidth=window.innerWidth>=700?'820px':'';
+  // Build list first so its height is known, then size canvas and wire up zoom/pan
+  pfBuildShotList();
+  pfUpdateFromSelection();
+  setTimeout(()=>pfInitShotCanvas(), 80);
+  document.getElementById('pf-sm-status').innerHTML=
+    `<span style="color:var(--ok)">✓ ${session.name||'Session'} loaded — select shots below</span>`;
+}
+
+function pfBuildShotList(){
+  const session=pfSmSelected; if(!session) return;
+  const list=document.getElementById('pf-shot-list');
+  list.innerHTML='';
+  session.shots.forEach((s,i)=>{
+    const row=document.createElement('div');
+    const sel=pfShotSelected.has(i);
+    row.style.cssText=`display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid var(--olv);cursor:pointer;background:${sel?'rgba(21,101,192,0.06)':''}`;
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.checked=sel; chk.style='flex-shrink:0;accent-color:var(--p)';
+    chk.onclick=e=>{e.stopPropagation();pfHandleShotClick(i,e);};
+    const lbl=document.createElement('span');
+    lbl.style.cssText='flex:1;font-size:13px;font-weight:500';
+    lbl.textContent=s.label||(s.sighter?'S':String(i+1));
+    if(s.sighter){
+      const tag=document.createElement('span');
+      tag.textContent='sighter';
+      tag.style.cssText='font-size:10px;background:var(--sfv);border:1px solid var(--olv);border-radius:4px;padding:1px 5px;color:var(--osv)';
+      row.append(chk,lbl,tag);
+    } else {
+      row.append(chk,lbl);
+    }
+    if(s.score){
+      const sc=document.createElement('span');
+      sc.textContent=s.score;
+      sc.style.cssText='font-size:12px;color:var(--osv);width:30px;text-align:right;font-family:"Roboto Mono",monospace;flex-shrink:0';
+      row.appendChild(sc);
+    }
+    if(s.v_fps){
+      const v=document.createElement('span');
+      v.textContent=s.v_fps+' fps';
+      v.style.cssText='font-size:12px;color:var(--osv);width:64px;text-align:right;font-family:"Roboto Mono",monospace;flex-shrink:0';
+      row.appendChild(v);
+    }
+    row.onclick=e=>pfHandleShotClick(i,e);
+    row.id=`pf-shot-${i}`;
+    list.appendChild(row);
+  });
+  pfUpdateSelCount();
+}
+
+function pfHandleShotClick(i,ev){
+  const session=pfSmSelected; if(!session) return;
+  if(ev.shiftKey&&pfLastShotClick!==null){
+    const lo=Math.min(pfLastShotClick,i),hi=Math.max(pfLastShotClick,i);
+    const target=!pfShotSelected.has(i);
+    for(let j=lo;j<=hi;j++){
+      if(target) pfShotSelected.add(j); else pfShotSelected.delete(j);
+    }
+  } else {
+    if(pfShotSelected.has(i)) pfShotSelected.delete(i); else pfShotSelected.add(i);
+  }
+  pfLastShotClick=i;
+  // Update row visuals
+  session.shots.forEach((_,j)=>{
+    const row=document.getElementById(`pf-shot-${j}`);
+    if(!row) return;
+    const sel=pfShotSelected.has(j);
+    row.style.background=sel?'rgba(21,101,192,0.06)':'';
+    row.querySelector('input').checked=sel;
+  });
+  pfUpdateSelCount();
+  pfRenderCanvas();
+  pfUpdateFromSelection();
+}
+
+function pfSelAll(v){
+  const session=pfSmSelected; if(!session) return;
+  pfShotSelected=v?new Set(session.shots.map((_,i)=>i)):new Set();
+  pfLastShotClick=null;
+  pfBuildShotList(); pfRenderCanvas(); pfUpdateFromSelection();
+}
+
+function pfSelType(sighters){
+  const session=pfSmSelected; if(!session) return;
+  pfShotSelected=new Set(session.shots.map((_,i)=>i).filter(i=>session.shots[i].sighter===sighters));
+  pfLastShotClick=null;
+  pfBuildShotList(); pfRenderCanvas(); pfUpdateFromSelection();
+}
+
+function pfUpdateSelCount(){
+  const el=document.getElementById('pf-sel-count');
+  if(el) el.textContent=`${pfShotSelected.size} shots selected`;
+}
+
+let pfCanvasCtrl=null;
+
+function pfInitShotCanvas(){
+  const session=pfSmSelected; if(!session) return;
+  // Match canvas wrap height to the list column so they're flush
+  const listCol=document.getElementById('pf-list-col');
+  const wrap=document.getElementById('pf-canvas-wrap');
+  if(wrap&&listCol) wrap.style.height=listCol.offsetHeight+'px';
+  pfCanvasCtrl=initInteractiveCanvas(
+    'pf-sm-canvas',
+    ()=>{ const s=pfSmSelected; if(!s) return [];
+          return s.shots.map((sh,i)=>({...sh, face_id:s.face_id,
+            _color:pfShotSelected.has(i)?null:'rgba(160,160,160,0.35)'})); },
+    ()=>pfSmSelected?.bullet_d_mm||7.82,
+    null
+  );
+}
+
+function pfRenderCanvas(){
+  if(pfCanvasCtrl) pfCanvasCtrl.draw();
+}
+
+function pfUpdateFromSelection(){
+  const session=pfSmSelected; if(!session) return;
+  const sel=session.shots.filter((_,i)=>pfShotSelected.has(i));
+  const rec=sel.filter(s=>!s.sighter&&s.v_fps);
+
+  const grpUnit=document.getElementById('pf-group-unit').value||'MOA';
+  const distYds=session.dist_unit==='y'?session.distance:(session.distance||0)*1.09361;
+  const ang=mm=>{ if(!distYds||mm==null) return null; const r=Math.atan2(mm,distYds*914.4); return grpUnit==='Mil'?+(r*1000).toFixed(3):+(r*(180/Math.PI)*60).toFixed(3); };
+
+  let statsHtml='';
+
+  if(rec.length){
+    const vs=rec.map(s=>s.v_fps);
+    const avg=vs.reduce((a,v)=>a+v,0)/vs.length;
+    const sd=Math.sqrt(vs.map(v=>(v-avg)**2).reduce((a,v)=>a+v,0)/vs.length);
+    const es=Math.max(...vs)-Math.min(...vs);
+    document.getElementById('pf-vel').value=avg.toFixed(1);
+    document.getElementById('pf-sd').value=sd.toFixed(1);
+    document.getElementById('pf-es').value=es.toFixed(0);
+    document.getElementById('pf-shots').value=rec.length;
+    statsHtml+=`<span><b>${rec.length}</b> shots</span><span>Avg <b>${avg.toFixed(0)} fps</b></span><span>SD <b>${sd.toFixed(1)}</b></span><span>ES <b>${es.toFixed(0)} fps</b></span>`;
+
+    const coord=rec.filter(s=>s.x_mm!=null&&s.y_mm!=null);
+    if(coord.length>1){
+      const xs=coord.map(s=>s.x_mm),ys=coord.map(s=>s.y_mm);
+      const gx=Math.max(...xs)-Math.min(...xs);
+      const gy=Math.max(...ys)-Math.min(...ys);
+      let gMax=0;
+      for(let i=0;i<coord.length;i++) for(let j=i+1;j<coord.length;j++){
+        const dx=coord[i].x_mm-coord[j].x_mm,dy=coord[i].y_mm-coord[j].y_mm;
+        gMax=Math.max(gMax,Math.sqrt(dx*dx+dy*dy));
+      }
+      const ga=ang(gMax),gxa=ang(gx),gya=ang(gy);
+      if(ga!=null){ document.getElementById('pf-group').value=ga; statsHtml+=`<span>Group <b>${ga} ${grpUnit}</b></span>`; }
+      if(gxa!=null){ document.getElementById('pf-group-x').value=gxa; statsHtml+=`<span>X <b>${gxa} ${grpUnit}</b></span>`; }
+      if(gya!=null){ document.getElementById('pf-group-y').value=gya; statsHtml+=`<span>Y <b>${gya} ${grpUnit}</b></span>`; }
+      if(gxa!=null){ document.getElementById('pf-group-x').value=gxa; }
+      if(gya!=null){ document.getElementById('pf-group-y').value=gya; }
+    }
+  } else {
+    // Clear stat fields if nothing selected
+    ['pf-vel','pf-sd','pf-es','pf-shots','pf-group','pf-group-x','pf-group-y'].forEach(id=>document.getElementById(id).value='');
+  }
+  const statsEl=document.getElementById('pf-live-stats');
+  if(statsEl) statsEl.innerHTML=statsHtml;
+}
+
 function openPerfModal(prefillLot){
   perfEditId=null;
+  pfResetSmUI();
   document.getElementById('perf-modal-title').textContent='Add Performance Session';
-  document.getElementById('pf-save-text').textContent='Add Session';
-  ['pf-lot','pf-date','pf-shots','pf-dist','pf-vel','pf-sd','pf-es','pf-group','pf-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pf-save-text').textContent='Save Session';
+  ['pf-lot','pf-date','pf-shots','pf-dist','pf-vel','pf-sd','pf-es','pf-group','pf-group-x','pf-group-y','pf-notes'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('pf-dist-unit').value='yd';
   document.getElementById('pf-group-unit').value='MOA';
+  document.getElementById('pf-position').value='';
   document.getElementById('pf-firearm').value='';
   if(prefillLot) document.getElementById('pf-lot').value=prefillLot;
   openModal('perf-overlay');
@@ -1413,7 +1905,10 @@ function editPerformance(id){
   document.getElementById('pf-sd').value=row.std_dev||'';
   document.getElementById('pf-es').value=row.extreme_spread||'';
   document.getElementById('pf-group').value=row.group_size||'';
+  document.getElementById('pf-group-x').value=row.group_x||'';
+  document.getElementById('pf-group-y').value=row.group_y||'';
   document.getElementById('pf-group-unit').value=row.group_unit||'MOA';
+  document.getElementById('pf-position').value=row.position||'';
   document.getElementById('pf-notes').value=row.notes||'';
   openModal('perf-overlay');
 }
@@ -1430,15 +1925,33 @@ async function savePerformance(){
     std_dev:document.getElementById('pf-sd').value,
     extreme_spread:document.getElementById('pf-es').value,
     group_size:document.getElementById('pf-group').value,
+    group_x:document.getElementById('pf-group-x').value,
+    group_y:document.getElementById('pf-group-y').value,
     group_unit:document.getElementById('pf-group-unit').value,
+    position:document.getElementById('pf-position').value,
     notes:document.getElementById('pf-notes').value,
   };
   document.getElementById('pf-save-btn').disabled=true;
   try{
-    if(perfEditId) await api('PUT',`/api/performance/${perfEditId}`,data);
-    else await api('POST','/api/performance',data);
+    let saved;
+    if(perfEditId){ saved=await api('PUT',`/api/performance/${perfEditId}`,data); }
+    else { saved=await api('POST','/api/performance',data); }
+    // If a ShotMarker session was imported, save its shots automatically
+    if(pfSmSelected && !perfEditId){
+      const pid=saved.id;
+      const selectedShots=pfSmSelected.shots.filter((_,i)=>pfShotSelected.has(i));
+      const payload={
+        shots:selectedShots,
+        face_id:pfSmSelected.face_id,
+        distance:pfSmSelected.distance,
+        dist_unit:pfSmSelected.dist_unit,
+        bullet_d_mm:pfSmSelected.bullet_d_mm,
+      };
+      await api('POST',`/api/performance/${pid}/shots`,payload);
+    }
     snack(perfEditId?'Session updated':'Session added','ok');
     closeModal('perf-overlay');
+    pfSmSelected=null;
     await fetchPerformance();
   }catch(e){snack('Error: '+e.message,'err')}
   document.getElementById('pf-save-btn').disabled=false;
@@ -1476,6 +1989,7 @@ const LABEL_FIELDS=[
     {key:'annealed',            label:'Annealed'},
     {key:'number_of_loads',     label:'Times brass fired'},
     {key:'rounds_made',         label:'Rounds made'},
+    {key:'base_to_ogive',      label:'Base to Ogive (BTO)'},
   ]},
 ];
 
@@ -1489,6 +2003,8 @@ async function loadSettings(){
     setLabelUnit(s.label_units||'mm',false);
     document.getElementById('s-auto-dec').checked=(s.auto_decrement||'1')==='1';
     document.getElementById('s-dark').checked=document.documentElement.dataset.theme==='dark';
+    setPerfUnit('speed', s.perf_speed||'fps', false);
+    setPerfUnit('angle', s.perf_angle||'MOA', false);
 
     // Build per-field label toggles grouped by section
     const wrap=document.getElementById('label-toggles');
@@ -1546,8 +2062,36 @@ async function saveSettings(){
       data[`label_show_${f.key}`]=document.getElementById(`s-show-${f.key}`)?.checked?'1':'0';
     });
   });
+  data.perf_speed=settingsCache.perf_speed||'fps';
+  data.perf_angle=settingsCache.perf_angle||'MOA';
   try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};}
   catch(e){snack('Error saving settings','err')}
+}
+
+function setPerfUnit(type, val, save=true){
+  if(type==='speed'){
+    document.getElementById('pu-fps')?.classList.toggle('active', val==='fps');
+    document.getElementById('pu-ms')?.classList.toggle('active',  val==='m/s');
+    if(save) settingsCache.perf_speed=val;
+  } else {
+    document.getElementById('pu-moa')?.classList.toggle('active', val==='MOA');
+    document.getElementById('pu-mil')?.classList.toggle('active', val==='mil');
+    if(save) settingsCache.perf_angle=val;
+  }
+  if(save) renderPerf(allPerf);
+}
+function perfUnits(){ return {speed:settingsCache.perf_speed||'fps', angle:settingsCache.perf_angle||'MOA'}; }
+function fmtVel(fps_val){
+  if(fps_val==null||fps_val==='') return '';
+  const v=parseFloat(fps_val);
+  const pu=perfUnits();
+  if(pu.speed==='m/s') return (v/3.28084).toFixed(1)+' m/s';
+  return v.toFixed(0)+' fps';
+}
+async function recalculatePerformance(){
+  await api('POST','/api/performance/recalculate');
+  await fetchPerformance();
+  snack('Stats recalculated','ok');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1644,8 +2188,1003 @@ function snack(msg,type='ok'){
 // ══════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════
+// ══ Compare ══════════════════════════════════════════════════════
+let cmpMode='overlay';
+
+function setCmpMode(m){
+  cmpMode=m;
+  const ov=document.getElementById('cmp-btn-overlay');
+  const si=document.getElementById('cmp-btn-side');
+  if(ov){ ov.style.background=m==='overlay'?'var(--p)':'transparent'; ov.style.color=m==='overlay'?'var(--op)':'var(--osv)'; }
+  if(si){ si.style.background=m==='side'?'var(--p)':'transparent'; si.style.color=m==='side'?'var(--op)':'var(--osv)'; }
+  renderCompare();
+}
+
+async function openCompare(){
+  if(perfSelected.size<2){ snack('Select at least 2 sessions','warn'); return; }
+  openModal('compare-overlay');
+  setCmpMode(cmpMode);
+  renderCompare();
+}
+
+async function renderCompare(){
+  const ids=[...perfSelected];
+  const sessions=ids.map(id=>allPerf.find(p=>p.id===id)).filter(Boolean);
+  if(!sessions.length) return;
+
+  // Pills
+  const pills=document.getElementById('cmp-pills');
+  if(pills) pills.innerHTML=sessions.map((s,i)=>`
+    <span style="display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:500;background:${CMP_COLORS[i]}22;color:${CMP_COLORS[i]};border:1px solid ${CMP_COLORS[i]}55">
+      <span style="width:8px;height:8px;border-radius:50%;background:${CMP_COLORS[i]};flex-shrink:0"></span>
+      ${s.lot_number||'Session '+s.id} · ${s.distance||'?'}${s.distance_unit||'yd'}
+    </span>`).join('');
+
+  // Mismatch warning
+  const warn=document.getElementById('cmp-warn');
+  const warnText=document.getElementById('cmp-warn-text');
+  const mismatches=[];
+  const dists=[...new Set(sessions.map(s=>`${s.distance}${s.distance_unit}`))];
+  if(dists.length>1) mismatches.push(`distances differ (${dists.join(', ')})`);
+  if(warn&&warnText){
+    if(mismatches.length){ warn.style.display=''; warnText.textContent='Warning: '+mismatches.join('; ')+' — overlay may be misleading.'; }
+    else warn.style.display='none';
+  }
+
+  // Fetch shots for all sessions
+  const allShots=await Promise.all(sessions.map(s=>api('GET',`/api/performance/${s.id}/shots`).catch(()=>[])));
+  // Fetch load data for all sessions
+  const allLoads2=await Promise.all(sessions.map(async s=>{
+    if(!s.lot_number) return null;
+    try{ const r=await api('GET',`/api/loads?search=${encodeURIComponent(s.lot_number)}`); return r.find(l=>l.lot_number===s.lot_number)||null; }
+    catch(e){ return null; }
+  }));
+
+  const showSighters=document.getElementById('cmp-sighters')?.checked;
+  const content=document.getElementById('cmp-content');
+  if(!content) return;
+
+  const isMobile=window.innerWidth<700;
+
+  if(cmpMode==='overlay'){
+    // Mobile: canvas full width top, cards below in scrollable column
+    // Desktop: canvas left, cards right side-by-side
+    content.innerHTML=isMobile?`
+      <div>
+        <div style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);overflow:hidden;margin-bottom:12px">
+          <div style="position:relative;aspect-ratio:1;background:#f0ede8">
+            <canvas id="cmp-canvas-ov" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${sessions.map((s,i)=>buildCmpCard(s,allLoads2[i],allShots[i],i)).join('')}
+        </div>
+      </div>`:`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <div style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);overflow:hidden">
+            <div style="position:relative;aspect-ratio:1;background:#f0ede8">
+              <canvas id="cmp-canvas-ov" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:70vh">
+          ${sessions.map((s,i)=>buildCmpCard(s,allLoads2[i],allShots[i],i)).join('')}
+        </div>
+      </div>`;
+    setTimeout(()=>drawCmpCanvas('cmp-canvas-ov', sessions, allShots, showSighters),50);
+  } else {
+    // Mobile: all stacked vertically (canvas then card per session)
+    // Desktop: grid columns
+    const cols=isMobile?'1fr':sessions.length<=2?'1fr 1fr':'1fr 1fr 1fr';
+    content.innerHTML=`
+      <div style="display:grid;grid-template-columns:${cols};gap:12px">
+        ${sessions.map((s,i)=>`
+          <div>
+            <div style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);overflow:hidden;margin-bottom:8px">
+              <div style="position:relative;aspect-ratio:1;background:#f0ede8">
+                <canvas id="cmp-canvas-${i}" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+              </div>
+            </div>
+            ${buildCmpCard(s,allLoads2[i],allShots[i],i)}
+          </div>`).join('')}
+      </div>`;
+    setTimeout(()=>sessions.forEach((_,i)=>{
+      const cvId=`cmp-canvas-${i}`;
+      const color=CMP_COLORS[i];
+      const bulletD=(allShots[i]||[])[0]?.bullet_d_mm||7.82;
+      const faceId=(allShots[i]||[])[0]?.face_id||'NRA_MR1';
+      function getTagged(){
+        const show=document.getElementById('cmp-sighters')?.checked;
+        return (allShots[i]||[]).filter(sh=>show||!sh.sighter).map(sh=>({...sh,_color:color}));
+      }
+      initInteractiveCanvas(cvId, getTagged, ()=>bulletD, null);
+    }),50);
+  }
+}
+
+function buildCmpCard(s,load,shots,i){
+  const col=CMP_COLORS[i];
+  const rec=(shots||[]).filter(sh=>!sh.sighter);
+  const loadLine=load?[
+    load.cartridge,
+    [load.bullet_manufacturer,load.bullet_type,load.bullet_weight?load.bullet_weight+'gr':null].filter(Boolean).join(' '),
+    load.powder_type&&load.powder_weight?`${load.powder_type} ${load.powder_weight}gr`:load.powder_type,
+    load.cartridge_length?`COAL ${load.cartridge_length}`:null,
+    load.base_to_ogive?`BTO ${load.base_to_ogive}`:null,
+    load.primer,
+  ].filter(Boolean).join(' · '):'';
+  return `
+    <div style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0"></span>
+        <span style="font-size:13px;font-weight:500">${s.lot_number||'Session '+s.id}</span>
+        <span style="font-size:11px;color:var(--osv);margin-left:auto">${s.distance||''}${s.distance_unit||''} · ${s.date||''}</span>
+      </div>
+      ${loadLine?`<div style="font-size:11px;color:var(--osv);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--olv)">${loadLine}</div>`:''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px">
+        ${[
+          ['Avg Vel', s.avg_velocity?s.avg_velocity+' fps':'—'],
+          ['SD',      s.std_dev?s.std_dev+' fps':'—'],
+          ['Vel ES',  s.extreme_spread?s.extreme_spread+' fps':'—'],
+          ['Group',   s.group_size?s.group_size+' '+s.group_unit:'—'],
+          ['Grp X',   s.group_x?s.group_x+' '+s.group_unit:'—'],
+          ['Grp Y',   s.group_y?s.group_y+' '+s.group_unit:'—'],
+          ['Shots',   rec.length||s.num_shots||'—'],
+        ].map(([k,v])=>`<div style="color:var(--osv)">${k}</div><div style="font-weight:500">${v}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function drawCmpCanvas(cvId, sessions, allShots, showSighters){
+  function getTagged(){
+    const tagged=[];
+    const show=document.getElementById('cmp-sighters')?.checked;
+    sessions.forEach((s,si)=>{
+      const shots=(allShots[si]||[]).filter(sh=>show||!sh.sighter);
+      shots.forEach(sh=>tagged.push({...sh,_color:CMP_COLORS[si]}));
+    });
+    return tagged;
+  }
+  const bulletD=(allShots[0]||[])[0]?.bullet_d_mm||7.82;
+  initInteractiveCanvas(cvId, getTagged, ()=>bulletD, null);
+}
+
+// ══ Init ══════════════════════════════════════════════════════
 buildLoadsHead();
-Promise.all([fetchLoads(),fetchFirearms(),fetchStats(),fetchAC()]);
+Promise.all([fetchLoads(),fetchFirearms(),fetchStats(),fetchAC(),fetchLabelKey()]);
+</script>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- ShotMarker: Upload + Select Modal                         -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="overlay modal-lg" id="sm-upload-overlay" onclick="overlayClick(event,'sm-upload-overlay')">
+<div class="modal" style="max-width:960px;width:95vw">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">my_location</span></div>
+    <div class="mtitle">ShotMarker Import</div>
+    <button class="icon-btn" onclick="closeModal('sm-upload-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody" style="padding:0;display:block;overflow-y:auto;-webkit-overflow-scrolling:touch">
+    <!-- Step 1: Upload -->
+    <div id="sm-step-upload" style="padding:20px">
+      <div id="sm-drop-zone" style="border:2px dashed var(--ol);border-radius:var(--rmd);padding:36px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s"
+           onclick="document.getElementById('sm-file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--p)';this.style.background='var(--pc)'"
+           ondragleave="this.style.borderColor='var(--ol)';this.style.background=''"
+           ondrop="smHandleDrop(event)">
+        <span class="mi material-icons-round" style="font-size:40px;color:var(--p);display:block;margin-bottom:8px">upload_file</span>
+        <div style="font-size:15px;font-weight:500;color:var(--os)">Drop ShotMarker .tar export here</div>
+        <div style="font-size:13px;color:var(--osv);margin-top:4px">or click to browse</div>
+        <input type="file" id="sm-file-input" accept=".tar" style="display:none" onchange="smUploadFile(this.files[0])">
+      </div>
+      <div id="sm-upload-err" style="display:none;margin-top:12px;color:var(--err);font-size:13px"></div>
+    </div>
+    <!-- Step 2: Select shots — responsive two-pane / stacked -->
+    <div id="sm-step-select" style="display:none;flex-direction:column">
+      <div id="sm-main-area" style="display:flex;flex:1">
+        <!-- Canvas pane -->
+        <div style="flex:1;position:relative;min-height:0;background:#e8e8e8;overflow:hidden" id="sm-canvas-wrap">
+          <canvas id="sm-canvas" style="position:absolute;top:0;left:0;touch-action:none;cursor:grab"></canvas>
+          <div style="position:absolute;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px">
+            <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smZoom(1.25)" title="Zoom in"><span class="mi material-icons-round" style="font-size:18px">zoom_in</span></button>
+            <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smZoom(0.8)" title="Zoom out"><span class="mi material-icons-round" style="font-size:18px">zoom_out</span></button>
+            <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smResetView()" title="Reset view"><span class="mi material-icons-round" style="font-size:18px">fit_screen</span></button>
+          </div>
+          <div id="sm-tip" style="position:absolute;background:var(--sf);border:0.5px solid var(--olv);border-radius:var(--rsm);padding:6px 10px;font-size:12px;line-height:1.6;pointer-events:none;display:none;white-space:nowrap;box-shadow:var(--s1);z-index:10"></div>
+        </div>
+        <!-- Shot list — desktop sidebar, hidden on mobile -->
+        <div id="sm-shot-sidebar" style="width:190px;flex-shrink:0;border-left:1px solid var(--olv);display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:6px 8px;border-bottom:1px solid var(--olv);display:flex;gap:4px;flex-wrap:wrap">
+            <button class="btn btn-tonal btn-sm" onclick="smSelectAll(true)">All</button>
+            <button class="btn btn-tonal btn-sm" onclick="smSelectAll(false)">None</button>
+            <button class="btn btn-tonal btn-sm" onclick="smSelectType('record')">Record</button>
+            <button class="btn btn-tonal btn-sm" onclick="smSelectType('sighter')">Sighters</button>
+          </div>
+          <div id="sm-shot-list" style="flex:1;overflow-y:auto;padding:2px 0;-webkit-overflow-scrolling:touch"></div>
+          <div style="padding:6px 10px;border-top:1px solid var(--olv);font-size:11px;color:var(--osv)" id="sm-sel-count"></div>
+        </div>
+      </div>
+      <!-- Mobile chip row — shown on mobile only -->
+      <div id="sm-chip-bar" style="display:none;border-top:1px solid var(--olv);background:var(--sfv)">
+        <div style="display:flex;gap:4px;padding:6px 8px;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap">
+          <button class="btn btn-tonal btn-sm" onclick="smSelectAll(true)" style="flex-shrink:0">All</button>
+          <button class="btn btn-tonal btn-sm" onclick="smSelectAll(false)" style="flex-shrink:0">None</button>
+          <button class="btn btn-tonal btn-sm" onclick="smSelectType('record')" style="flex-shrink:0">Record</button>
+          <button class="btn btn-tonal btn-sm" onclick="smSelectType('sighter')" style="flex-shrink:0">Sighters</button>
+          <div style="width:1px;background:var(--olv);flex-shrink:0;margin:0 2px"></div>
+          <div id="sm-chips" style="display:contents"></div>
+        </div>
+      </div>
+      <!-- Stats bar -->
+      <div id="sm-stats-bar" style="display:flex;gap:12px;padding:8px 14px;border-top:1px solid var(--olv);font-size:12px;color:var(--osv);flex-wrap:wrap;background:var(--sfv)"></div>
+    </div>
+  </div>
+  <div class="mfooter" style="flex-wrap:wrap;gap:6px">
+    <div id="sm-session-info" style="font-size:12px;color:var(--osv);flex:1;min-width:100px"></div>
+    <button class="btn btn-tonal" onclick="closeModal('sm-upload-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="sm-save-btn" style="display:none" onclick="smSaveShots()">
+      <span class="mi material-icons-round">save</span><span id="sm-save-label">Save Shots</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- ShotMarker: View saved shots modal                        -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="overlay modal-lg" id="sm-view-overlay" onclick="overlayClick(event,'sm-view-overlay')">
+<div class="modal" style="max-width:800px;width:95vw">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">my_location</span></div>
+    <div class="mtitle" id="sm-view-title">Shot Group</div>
+    <button class="icon-btn" onclick="closeModal('sm-view-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody" style="padding:0;display:block">
+    <div style="display:flex;flex-direction:column">
+      <div style="position:relative;background:#e8e8e8;overflow:hidden" id="smv-canvas-wrap">
+        <canvas id="smv-canvas" style="position:absolute;top:0;left:0;touch-action:none;cursor:grab"></canvas>
+        <div style="position:absolute;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px">
+          <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(1.25)"><span class="mi material-icons-round" style="font-size:18px">zoom_in</span></button>
+          <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(0.8)"><span class="mi material-icons-round" style="font-size:18px">zoom_out</span></button>
+          <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvResetView()"><span class="mi material-icons-round" style="font-size:18px">fit_screen</span></button>
+        </div>
+        <div id="smv-tip" style="position:absolute;background:var(--sf);border:0.5px solid var(--olv);border-radius:var(--rsm);padding:6px 10px;font-size:12px;line-height:1.6;pointer-events:none;display:none;white-space:nowrap;box-shadow:var(--s1);z-index:10"></div>
+      </div>
+      <div id="smv-stats-bar" style="display:flex;gap:12px;padding:8px 14px;border-top:1px solid var(--olv);font-size:12px;color:var(--osv);flex-wrap:wrap;background:var(--sfv)"></div>
+      <div id="smv-shot-list" style="padding:10px 14px;border-top:1px solid var(--olv)">
+        <div style="font-size:12px;font-weight:500;color:var(--os);margin-bottom:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          Shots
+          <span style="font-size:11px;color:var(--osv);font-weight:400">(uncheck to exclude from stats)</span>
+          <div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap">
+            <button class="btn btn-tonal btn-sm" style="font-size:11px;padding:2px 8px" onclick="smvCheckType('record')">Record</button>
+            <button class="btn btn-tonal btn-sm" style="font-size:11px;padding:2px 8px" onclick="smvCheckType('sighter')">Sighters</button>
+            <button class="btn btn-tonal btn-sm" style="font-size:11px;padding:2px 8px" onclick="smvCheckAll(true)">All</button>
+            <button class="btn btn-tonal btn-sm" style="font-size:11px;padding:2px 8px" onclick="smvCheckAll(false)">None</button>
+          </div>
+        </div>
+        <div id="smv-shot-items" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:2px"></div>
+      </div>
+      <div id="smv-load-bar" style="display:none;gap:12px;padding:6px 14px;border-top:1px solid var(--olv);font-size:11px;color:var(--osv);flex-wrap:wrap;background:var(--surface);align-items:center"></div>
+    </div>
+  </div>
+  <div class="mfooter" style="flex-wrap:wrap;gap:6px">
+    <div id="smv-info" style="font-size:12px;color:var(--osv);flex:1;min-width:80px"></div>
+    <button class="btn btn-tonal" onclick="smvUploadNew()"><span class="mi material-icons-round">upload</span>Replace</button>
+    <button class="btn btn-tonal" onclick="closeModal('sm-view-overlay')">Close</button>
+  </div>
+</div>
+</div>
+
+<style>
+/* ── ShotMarker responsive layout ── */
+#sm-step-select { min-height: 0; }
+#sm-main-area   { height: 60vh; min-height: 260px; }
+#smv-canvas-wrap { height: 58vh; min-height: 240px; }
+
+@media (max-width: 600px) {
+  #sm-main-area        { flex-direction: column; height: auto; }
+  #sm-canvas-wrap      { height: 52vw; min-height: 200px; flex: none; width: 100%; }
+  #sm-shot-sidebar     { display: none !important; }
+  #sm-chip-bar         { display: block !important; }
+  #smv-canvas-wrap     { height: 80vw; min-height: 260px; }
+}
+</style>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// SHOTMARKER
+// ══════════════════════════════════════════════════════════════
+const SM_INCH = 25.4;
+const SM_FACES={
+  "NRA_MR52FC":{name:"MR-52FC (200)",rings:[{"r":11.303,"score":"X","dark":true},{"r":22.733,"score":10,"dark":true},{"r":48.133,"score":9,"dark":true},{"r":73.533,"score":8,"dark":true},{"r":98.933,"score":7,"dark":true},{"r":149.733,"score":6,"dark":true},{"r":200.533,"score":5,"dark":false}]},
+  "ISSFC50":{name:"ISSF C50",rings:[{"r":12.5,"score":"X","dark":true},{"r":25.0,"score":10,"dark":true},{"r":50.0,"score":9,"dark":true},{"r":75.0,"score":8,"dark":true},{"r":100.0,"score":7,"dark":true},{"r":125.0,"score":6,"dark":false},{"r":150.0,"score":5,"dark":false},{"r":175.0,"score":4,"dark":false},{"r":200.0,"score":3,"dark":false},{"r":225.0,"score":2,"dark":false},{"r":250.0,"score":1,"dark":false}]},
+  "ISSFC200":{name:"ISSF C200",rings:[{"r":40.0,"score":10,"dark":true},{"r":80.0,"score":9,"dark":true},{"r":120.0,"score":8,"dark":true},{"r":160.0,"score":7,"dark":true},{"r":200.0,"score":6,"dark":true},{"r":240.0,"score":5,"dark":false},{"r":280.0,"score":4,"dark":false},{"r":320.0,"score":3,"dark":false},{"r":360.0,"score":2,"dark":false},{"r":400.0,"score":1,"dark":false}]},
+  "ISSF300":{name:"ISSF 300m",rings:[{"r":25.0,"score":"X","dark":true},{"r":50.0,"score":10,"dark":true},{"r":100.0,"score":9,"dark":true},{"r":150.0,"score":8,"dark":true},{"r":200.0,"score":7,"dark":true},{"r":250.0,"score":6,"dark":true},{"r":300.0,"score":5,"dark":true},{"r":350.0,"score":4,"dark":false},{"r":400.0,"score":3,"dark":false},{"r":450.0,"score":2,"dark":false},{"r":500.0,"score":1,"dark":false}]},
+  "ISSF300x15":{name:"ISSF 300m +50%",rings:[{"r":37.5,"score":"X","dark":true},{"r":75.0,"score":10,"dark":true},{"r":150.0,"score":9,"dark":true},{"r":225.0,"score":8,"dark":true},{"r":300.0,"score":7,"dark":true},{"r":375.0,"score":6,"dark":true},{"r":450.0,"score":5,"dark":true},{"r":525.0,"score":4,"dark":false},{"r":600.0,"score":3,"dark":false},{"r":675.0,"score":2,"dark":false},{"r":750.0,"score":1,"dark":false}]},
+  "NRA_LR_800":{name:"NRA LR x0.8",rings:[{"r":101.6,"score":"X","dark":true},{"r":203.2,"score":10,"dark":true},{"r":304.8,"score":9,"dark":true},{"r":447.04,"score":8,"dark":true},{"r":609.6,"score":7,"dark":false}]},
+  "NRA_LRFC_800":{name:"NRA LRFC x0.8",rings:[{"r":50.8,"score":"X","dark":true},{"r":101.6,"score":10,"dark":true},{"r":203.2,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":447.04,"score":7,"dark":true},{"r":609.6,"score":6,"dark":false}]},
+  "FCSA_MR1":{name:"FCSA MR",rings:[{"r":76.2,"score":"X","dark":true},{"r":152.4,"score":10,"dark":true},{"r":228.6,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":457.2,"score":7,"dark":false},{"r":609.6,"score":6,"dark":false},{"r":762.0,"score":5,"dark":false}]},
+  "NRA_MR1_400":{name:"MR-1 x2/3",rings:[{"r":50.8,"score":"X","dark":true},{"r":101.6,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":203.2,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":406.4,"score":6,"dark":false},{"r":508.0,"score":5,"dark":false}]},
+  "NRA_C1":{name:"C-1 (300m)",rings:[{"r":25.0,"score":"X","dark":true},{"r":50.0,"score":10,"dark":true},{"r":100.0,"score":9,"dark":true},{"r":150.0,"score":8,"dark":true},{"r":200.0,"score":7,"dark":true},{"r":250.0,"score":6,"dark":true},{"r":300.0,"score":5,"dark":true},{"r":350.0,"score":4,"dark":false},{"r":400.0,"score":3,"dark":false},{"r":450.0,"score":2,"dark":false},{"r":500.0,"score":1,"dark":false}]},
+  "NRA_C2":{name:"C-2 (200y)",rings:[{"r":15.24,"score":"X","dark":true},{"r":30.48,"score":10,"dark":true},{"r":60.96,"score":9,"dark":true},{"r":91.44,"score":8,"dark":true},{"r":121.92,"score":7,"dark":true},{"r":152.4,"score":6,"dark":true},{"r":182.88,"score":5,"dark":true},{"r":213.36,"score":4,"dark":false},{"r":243.84,"score":3,"dark":false},{"r":274.32,"score":2,"dark":false},{"r":304.8,"score":1,"dark":false}]},
+  "NRA_C3":{name:"C-3 (300y)",rings:[{"r":22.86,"score":"X","dark":true},{"r":45.72,"score":10,"dark":true},{"r":91.44,"score":9,"dark":true},{"r":137.16,"score":8,"dark":true},{"r":182.88,"score":7,"dark":true},{"r":228.6,"score":6,"dark":true},{"r":274.32,"score":5,"dark":true},{"r":320.04,"score":4,"dark":false},{"r":365.76,"score":3,"dark":false},{"r":411.48,"score":2,"dark":false},{"r":457.2,"score":1,"dark":false}]},
+  "NRA_SR1":{name:"SR-1 (100)",rings:[{"r":17.145,"score":"X","dark":true},{"r":42.545,"score":10,"dark":true},{"r":80.645,"score":9,"dark":true},{"r":118.745,"score":8,"dark":false},{"r":156.845,"score":7,"dark":false},{"r":194.945,"score":6,"dark":false},{"r":233.045,"score":5,"dark":false}]},
+  "NRA_SR21":{name:"SR-21 (100)",rings:[{"r":10.033,"score":"X","dark":true},{"r":26.924,"score":10,"dark":true},{"r":52.324,"score":9,"dark":true},{"r":77.724,"score":8,"dark":true},{"r":103.124,"score":7,"dark":false},{"r":128.524,"score":6,"dark":false},{"r":153.924,"score":5,"dark":false}]},
+  "NRA_MR31":{name:"MR-31 (100)",rings:[{"r":9.525,"score":"X","dark":true},{"r":22.225,"score":10,"dark":true},{"r":34.925,"score":9,"dark":true},{"r":47.625,"score":8,"dark":true},{"r":73.025,"score":7,"dark":true},{"r":98.425,"score":6,"dark":false},{"r":123.825,"score":5,"dark":false}]},
+  "NRA_SR":{name:"SR (200)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
+  "NRA_SR42":{name:"SR-42 (200)",rings:[{"r":24.13,"score":"X","dark":true},{"r":57.912,"score":10,"dark":true},{"r":108.712,"score":9,"dark":true},{"r":159.512,"score":8,"dark":true},{"r":210.312,"score":7,"dark":false},{"r":261.112,"score":6,"dark":false},{"r":311.912,"score":5,"dark":false}]},
+  "NRA_MR52":{name:"MR-52 (200)",rings:[{"r":22.733,"score":"X","dark":true},{"r":48.133,"score":10,"dark":true},{"r":73.533,"score":9,"dark":true},{"r":98.933,"score":8,"dark":true},{"r":149.733,"score":7,"dark":true},{"r":200.533,"score":6,"dark":false},{"r":251.333,"score":5,"dark":false}]},
+  "NRA_SR5":{name:"SR-5 (200)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false}]},
+  "NRA_SR3":{name:"SR-3 (300)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":true},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
+  "NRA_MR63":{name:"MR-63 (300)",rings:[{"r":36.195,"score":"X","dark":true},{"r":74.295,"score":10,"dark":true},{"r":112.395,"score":9,"dark":true},{"r":150.495,"score":8,"dark":true},{"r":226.695,"score":7,"dark":true},{"r":302.895,"score":6,"dark":false},{"r":379.095,"score":5,"dark":false}]},
+  "NRA_MR63FC":{name:"MR-63FC (300)",rings:[{"r":18.034,"score":"X","dark":true},{"r":36.195,"score":10,"dark":true},{"r":74.295,"score":9,"dark":true},{"r":112.395,"score":8,"dark":true},{"r":150.495,"score":7,"dark":true},{"r":226.695,"score":6,"dark":true},{"r":302.895,"score":5,"dark":false}]},
+  "NRA_MR":{name:"MR (500)",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.0,"score":10,"dark":true},{"r":190.5,"score":9,"dark":true},{"r":254.0,"score":8,"dark":true},{"r":317.5,"score":7,"dark":true},{"r":381.0,"score":6,"dark":true},{"r":457.2,"score":5,"dark":false}]},
+  "NRA_MR65FC":{name:"MR-65FC (500)",rings:[{"r":31.75,"score":"X","dark":true},{"r":63.5,"score":10,"dark":true},{"r":127.0,"score":9,"dark":true},{"r":190.5,"score":8,"dark":true},{"r":254.0,"score":7,"dark":true},{"r":317.5,"score":6,"dark":true},{"r":381.0,"score":5,"dark":true}]},
+  "NRA_MR1":{name:"MR-1 (600)",rings:[{"r":76.2,"score":"X","dark":true},{"r":152.4,"score":10,"dark":true},{"r":228.6,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":457.2,"score":7,"dark":true},{"r":609.6,"score":6,"dark":false},{"r":762.0,"score":5,"dark":false}]},
+  "NRA_MR1FC":{name:"MR-1FC (600)",rings:[{"r":38.1,"score":"X","dark":true},{"r":76.2,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":228.6,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":457.2,"score":6,"dark":true},{"r":609.6,"score":5,"dark":false}]},
+  "NRA_MR1FCA":{name:"MR-1FCA (600)",rings:[{"r":38.1,"score":"X","dark":true},{"r":76.2,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":228.6,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":381.0,"score":6,"dark":true},{"r":457.2,"score":5,"dark":true}]},
+  "NRA_LR":{name:"LR (800-1000)",rings:[{"r":127.0,"score":"X","dark":true},{"r":254.0,"score":10,"dark":true},{"r":381.0,"score":9,"dark":true},{"r":558.8,"score":8,"dark":true},{"r":762.0,"score":7,"dark":false}]},
+  "NRA_LRFC":{name:"LRFC (800-1000)",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.0,"score":10,"dark":true},{"r":254.0,"score":9,"dark":true},{"r":381.0,"score":8,"dark":true},{"r":558.8,"score":7,"dark":true},{"r":762.0,"score":6,"dark":false}]},
+  "IF300y":{name:"FC 300y",rings:[{"r":16.0,"score":"V","dark":true},{"r":32.5,"score":5,"dark":true},{"r":65.0,"score":4,"dark":true},{"r":130.0,"score":3,"dark":true},{"r":195.0,"score":2,"dark":true},{"r":280.0,"score":1,"dark":true}]},
+  "IF300m":{name:"FC 300m",rings:[{"r":17.5,"score":"V","dark":true},{"r":35.0,"score":5,"dark":true},{"r":70.0,"score":4,"dark":true},{"r":140.0,"score":3,"dark":true},{"r":210.0,"score":2,"dark":true},{"r":300.0,"score":1,"dark":true}]},
+  "IF400y":{name:"FC 400y",rings:[{"r":21.5,"score":"V","dark":true},{"r":42.5,"score":5,"dark":true},{"r":87.5,"score":4,"dark":true},{"r":175.0,"score":3,"dark":true},{"r":260.0,"score":2,"dark":true},{"r":372.5,"score":1,"dark":true}]},
+  "IF400m":{name:"FC 400m",rings:[{"r":23.5,"score":"V","dark":true},{"r":47.5,"score":5,"dark":true},{"r":92.5,"score":4,"dark":true},{"r":187.5,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true},{"r":400.0,"score":1,"dark":true}]},
+  "IF500y":{name:"FC 500y",rings:[{"r":32.5,"score":"V","dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":300.0,"score":3,"dark":true},{"r":457.5,"score":2,"dark":true}]},
+  "IF500m":{name:"FC 500m",rings:[{"r":36.0,"score":"V","dark":true},{"r":72.5,"score":5,"dark":true},{"r":145.0,"score":4,"dark":true},{"r":330.0,"score":3,"dark":true},{"r":500.0,"score":2,"dark":true}]},
+  "IF600y":{name:"FC 600y",rings:[{"r":36.0,"score":"V","dark":true},{"r":72.5,"score":5,"dark":true},{"r":145.0,"score":4,"dark":true},{"r":300.0,"score":3,"dark":true},{"r":457.5,"score":2,"dark":true}]},
+  "IF600m":{name:"FC 600m/700y",rings:[{"r":40.0,"score":"V","dark":true},{"r":80.0,"score":5,"dark":true},{"r":160.0,"score":4,"dark":true},{"r":330.0,"score":3,"dark":true},{"r":500.0,"score":2,"dark":true}]},
+  "IFLR":{name:"FC Long Range",rings:[{"r":64.0,"score":"V","dark":true},{"r":127.0,"score":5,"dark":true},{"r":254.0,"score":4,"dark":true},{"r":407.5,"score":3,"dark":true},{"r":559.0,"score":2,"dark":true}]},
+  "IFX300y":{name:"FC 300y",rings:[{"r":16.0,"score":"X","dark":true},{"r":32.5,"score":6,"dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":195.0,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true}]},
+  "IFX300m":{name:"FC 300m",rings:[{"r":17.5,"score":"X","dark":true},{"r":35.0,"score":6,"dark":true},{"r":70.0,"score":5,"dark":true},{"r":140.0,"score":4,"dark":true},{"r":210.0,"score":3,"dark":true},{"r":300.0,"score":2,"dark":true}]},
+  "IFX400y":{name:"FC 400y",rings:[{"r":21.5,"score":"X","dark":true},{"r":43.0,"score":6,"dark":true},{"r":86.5,"score":5,"dark":true},{"r":173.0,"score":4,"dark":true},{"r":260.0,"score":3,"dark":true},{"r":373.0,"score":2,"dark":true}]},
+  "IFX400m":{name:"FC 400m",rings:[{"r":23.0,"score":"X","dark":true},{"r":46.5,"score":6,"dark":true},{"r":93.0,"score":5,"dark":true},{"r":186.5,"score":4,"dark":true},{"r":280.0,"score":3,"dark":true},{"r":400.0,"score":2,"dark":true}]},
+  "IFX500y":{name:"FC 500y",rings:[{"r":32.5,"score":"X","dark":true},{"r":65.0,"score":6,"dark":true},{"r":130.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IFX500m":{name:"FC 500m",rings:[{"r":36.0,"score":"X","dark":true},{"r":72.5,"score":6,"dark":true},{"r":145.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IFX600y":{name:"FC 600y",rings:[{"r":36.0,"score":"X","dark":true},{"r":72.5,"score":6,"dark":true},{"r":145.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IFX600m":{name:"FC 600m/700y",rings:[{"r":40.0,"score":"X","dark":true},{"r":80.0,"score":6,"dark":true},{"r":160.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IFXLR":{name:"FC Long Range",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.5,"score":6,"dark":true},{"r":255.0,"score":5,"dark":true},{"r":407.5,"score":4,"dark":true},{"r":560.0,"score":3,"dark":true},{"r":915.0,"score":2,"dark":false}]},
+  "IS300y":{name:"TR 300y",rings:[{"r":32.5,"score":"V","dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":195.0,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true}]},
+  "IS300m":{name:"TR 300m",rings:[{"r":35.0,"score":"V","dark":true},{"r":70.0,"score":5,"dark":true},{"r":140.0,"score":4,"dark":true},{"r":210.0,"score":3,"dark":true},{"r":300.0,"score":2,"dark":true}]},
+  "IS400y":{name:"TR 400y",rings:[{"r":42.5,"score":"V","dark":true},{"r":87.5,"score":5,"dark":true},{"r":175.0,"score":4,"dark":true},{"r":260.0,"score":3,"dark":true},{"r":372.5,"score":2,"dark":true}]},
+  "IS400m":{name:"TR 400m",rings:[{"r":47.5,"score":"V","dark":true},{"r":92.5,"score":5,"dark":true},{"r":187.5,"score":4,"dark":true},{"r":280.0,"score":3,"dark":true},{"r":400.0,"score":2,"dark":true}]},
+  "IS500y":{name:"TR 500y",rings:[{"r":65.0,"score":"V","dark":true},{"r":130.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IS500m":{name:"TR 500m",rings:[{"r":72.5,"score":"V","dark":true},{"r":145.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IS600y":{name:"TR 600y",rings:[{"r":72.5,"score":"V","dark":true},{"r":145.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "IS600m":{name:"TR 600m/700y",rings:[{"r":80.0,"score":"V","dark":true},{"r":160.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
+  "ISLR":{name:"TR Long Range",rings:[{"r":127.5,"score":"V","dark":true},{"r":255.0,"score":5,"dark":true},{"r":407.5,"score":4,"dark":true},{"r":560.0,"score":3,"dark":true},{"r":915.0,"score":2,"dark":false}]},
+  "IBS600BR":{name:"IBS 600 BR",rings:[{"r":15.24,"score":"X","dark":false},{"r":35.56,"score":10,"dark":false},{"r":66.04,"score":9,"dark":true},{"r":96.52,"score":8,"dark":false},{"r":127.0,"score":7,"dark":false},{"r":157.48,"score":6,"dark":false},{"r":187.96,"score":5,"dark":false}]},
+  "IBS1000BR":{name:"IBS 1000 BR",rings:[{"r":38.1,"score":"X","dark":false},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
+};
+
+const SM_SUPPORTED=new Set(Object.keys(SM_FACES));
+const SM_GRAY='#888884', SM_WHITE='#ffffff';
+// Default fallback = NRA MR-1
+function smGetRings(face_id){
+  return (SM_FACES[face_id]||SM_FACES["NRA_MR1"]).rings;
+}
+
+let smPerfId=null, smSession=null, smShots=[], smSelected=new Set(), smLastClick=null;
+let smZoomLevel=1, smPanX=0, smPanY=0;
+let smPinchDist=null, smPinchZoomStart=null;
+
+let smvPerfId=null, smvShots=[], smvSession=null, smvSelected=new Set();
+let smvZoomLevel=1, smvPanX=0, smvPanY=0;
+let smvPinchDist=null, smvPinchZoomStart=null;
+
+// ── Upload flow ───────────────────────────────────────────────
+function smHandleDrop(e){
+  e.preventDefault();
+  const dz=document.getElementById('sm-drop-zone');
+  dz.style.borderColor=''; dz.style.background='';
+  const f=e.dataTransfer.files[0]; if(f) smUploadFile(f);
+}
+
+async function smUploadFile(file){
+  if(!file) return;
+  const errEl=document.getElementById('sm-upload-err');
+  errEl.style.display='none';
+  const dz=document.getElementById('sm-drop-zone');
+  dz.innerHTML='<span class="mi material-icons-round" style="font-size:36px;color:var(--p);display:block;margin-bottom:8px;animation:smSpin 1s linear infinite">refresh</span><div style="color:var(--osv)">Decoding…</div>';
+  const fd=new FormData(); fd.append('file',file);
+  try{
+    const res=await fetch('/api/shotmarker/upload',{method:'POST',body:fd});
+    const sessions=await res.json();
+    if(!res.ok) throw new Error(sessions.error||'Upload failed');
+    if(!sessions.length) throw new Error('No sessions found in export');
+    smSession=sessions[0]; smShots=smSession.shots;
+    // Validate face is supported
+    if(smSession.face_id && !SM_SUPPORTED.has(smSession.face_id)){
+      throw new Error(
+        `Target face "${smSession.face_id}" is not supported. ` +
+        `Supported faces: ${[...SM_SUPPORTED].join(', ')}.`
+      );
+    }
+    smSelected=new Set(smShots.filter(s=>!s.sighter).map((_,i)=>i));
+    document.getElementById('sm-step-upload').style.display='none';
+    const sel=document.getElementById('sm-step-select');
+    sel.style.display='flex';
+    document.getElementById('sm-save-btn').style.display='';
+    document.getElementById('sm-session-info').textContent=
+      `${smSession.name} · ${smSession.face_id} · ${smSession.distance}${smSession.dist_unit} · ${smSession.group_text}`;
+    smBuildShotList();
+    smBuildChips();
+    smResetView();
+    requestAnimationFrame(()=>smInitCanvas());
+  }catch(err){
+    errEl.textContent=err.message; errEl.style.display='block';
+    smResetDropZone();
+  }
+}
+
+function smResetDropZone(){
+  document.getElementById('sm-drop-zone').innerHTML=
+    '<span class="mi material-icons-round" style="font-size:40px;color:var(--p);display:block;margin-bottom:8px">upload_file</span>'+
+    '<div style="font-size:15px;font-weight:500;color:var(--os)">Drop ShotMarker .tar export here</div>'+
+    '<div style="font-size:13px;color:var(--osv);margin-top:4px">or click to browse</div>'+
+    '<input type="file" id="sm-file-input" accept=".tar" style="display:none" onchange="smUploadFile(this.files[0])">';
+}
+
+// ── Shot list (desktop sidebar) ───────────────────────────────
+function smBuildShotList(){
+  const el=document.getElementById('sm-shot-list'); el.innerHTML='';
+  smShots.forEach((s,i)=>{
+    const row=document.createElement('div');
+    row.id=`smr-${i}`;
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;font-size:13px;transition:background .1s';
+    row.onclick=ev=>smHandleRowClick(i,ev);
+    row.onmouseenter=()=>row.style.background='var(--sfv)';
+    row.onmouseleave=()=>row.style.background='';
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.checked=smSelected.has(i);
+    chk.onclick=ev=>{ev.stopPropagation();smHandleRowClick(i,ev);};
+    const lbl=document.createElement('span');
+    lbl.style.cssText='flex:1;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    lbl.textContent=s.label||(s.sighter?'S':'?');
+    const sc=document.createElement('span');
+    sc.style.cssText='font-size:12px;color:var(--osv);width:36px;text-align:right;flex-shrink:0;font-family:"Roboto Mono",monospace';
+    sc.textContent=s.score||'';
+    if(s.sighter){
+      const tag=document.createElement('span');
+      tag.textContent='S';
+      tag.style.cssText='font-size:10px;background:var(--sfv);border:1px solid var(--olv);border-radius:4px;padding:1px 4px;color:var(--osv);flex-shrink:0';
+      row.append(chk,lbl,tag,sc);
+    } else {
+      row.append(chk,lbl,sc);
+    }
+    el.appendChild(row);
+  });
+  smUpdateSelCount();
+}
+
+// ── Chip row (mobile) ─────────────────────────────────────────
+function smBuildChips(){
+  const el=document.getElementById('sm-chips'); el.innerHTML='';
+  smShots.forEach((s,i)=>{
+    const chip=document.createElement('button');
+    chip.id=`smc-${i}`;
+    chip.style.cssText='flex-shrink:0;padding:4px 10px;border-radius:16px;border:1.5px solid var(--olv);background:var(--sf);font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap';
+    chip.textContent=(s.label||(s.sighter?'S':'?'))+(s.score?' '+s.score:'');
+    chip.onclick=()=>smToggleShot(i);
+    smUpdateChip(chip, i);
+    el.appendChild(chip);
+  });
+}
+
+function smUpdateChip(chip, i){
+  if(!chip) chip=document.getElementById(`smc-${i}`);
+  if(!chip) return;
+  const sel=smSelected.has(i);
+  chip.style.background=sel?'var(--p)':'var(--sf)';
+  chip.style.color=sel?'var(--op)':'var(--osv)';
+  chip.style.borderColor=sel?'var(--p)':'var(--olv)';
+}
+
+function smHandleRowClick(i, ev){
+  if(ev && ev.shiftKey && smLastClick!==null){
+    // Range select: toggle all shots between lastClick and i to the same state as i will be
+    const lo=Math.min(smLastClick,i), hi=Math.max(smLastClick,i);
+    const target=!smSelected.has(i); // direction follows the clicked item
+    for(let j=lo;j<=hi;j++){
+      if(target) smSelected.add(j); else smSelected.delete(j);
+      const row=document.getElementById(`smr-${j}`);
+      if(row) row.querySelector('input').checked=target;
+      smUpdateChip(null,j);
+    }
+  } else {
+    smToggleShot(i);
+  }
+  smLastClick=i;
+  smUpdateSelCount();
+  smResizeAndDraw();
+}
+
+function smToggleShot(i){
+  if(smSelected.has(i)) smSelected.delete(i); else smSelected.add(i);
+  const chk=document.getElementById(`smr-${i}`); if(chk) chk.querySelector('input').checked=smSelected.has(i);
+  smUpdateChip(null,i);
+}
+
+function smSelectAll(v){
+  smLastClick=null;
+  smShots.forEach((_,i)=>{
+    if(v) smSelected.add(i); else smSelected.delete(i);
+    const row=document.getElementById(`smr-${i}`);
+    if(row) row.querySelector('input').checked=v;
+    smUpdateChip(null,i);
+  });
+  smUpdateSelCount(); smResizeAndDraw();
+}
+
+function smSelectType(type){
+  smShots.forEach((s,i)=>{
+    const want=type==='sighter'?s.sighter:!s.sighter;
+    if(want) smSelected.add(i); else smSelected.delete(i);
+    const row=document.getElementById(`smr-${i}`);
+    if(row) row.querySelector('input').checked=smSelected.has(i);
+    smUpdateChip(null,i);
+  });
+  smUpdateSelCount(); smResizeAndDraw();
+}
+
+function smUpdateSelCount(){
+  const rec=smShots.filter((_,i)=>smSelected.has(i)&&!smShots[i].sighter).length;
+  const sig=smShots.filter((_,i)=>smSelected.has(i)&&smShots[i].sighter).length;
+  const el=document.getElementById('sm-sel-count');
+  if(el) el.textContent=`${rec} record, ${sig} sighters`;
+  smUpdateStats('sm-stats-bar', smShots.filter((_,i)=>smSelected.has(i)&&!smShots[i].sighter));
+}
+
+function mmToAngular(mm, distYd, unit){
+  if(mm==null||!distYd) return null;
+  const distMm=distYd*914.4;
+  const rad=Math.atan2(mm,distMm);
+  if(unit==='Mil') return +(rad*1000).toFixed(3);
+  return +(rad*(180/Math.PI)*60).toFixed(3);
+}
+
+function smUpdateStats(barId, shots){
+  const bar=document.getElementById(barId); if(!bar) return;
+  const withVel=shots.filter(s=>s.v_fps);
+  if(!shots.length){bar.innerHTML='';return;}
+
+  // Velocity stats (from shots that have velocity)
+  let html=`<span><b>${shots.length}</b> shots</span>`;
+  if(withVel.length){
+    const vs=withVel.map(s=>s.v_fps);
+    const avg=vs.reduce((a,v)=>a+v,0)/vs.length;
+    const sd=Math.sqrt(vs.map(v=>(v-avg)**2).reduce((a,v)=>a+v,0)/vs.length);
+    const velES=Math.max(...vs)-Math.min(...vs);
+    html+=`<span>Avg: <b>${fmtVel(avg)}</b></span>`
+        +`<span>SD: <b>${fmtVel(sd)}</b></span>`
+        +`<span>Vel ES: <b>${fmtVel(velES)}</b></span>`;
+  }
+
+  // Group size stats from coordinates
+  const coord=shots.filter(s=>s.x_mm!=null&&s.y_mm!=null);
+  let groupMm=0, groupXmm=0, groupYmm=0;
+  if(coord.length>1){
+    const xs=coord.map(s=>s.x_mm), ys=coord.map(s=>s.y_mm);
+    groupXmm=Math.max(...xs)-Math.min(...xs);
+    groupYmm=Math.max(...ys)-Math.min(...ys);
+    for(let i=0;i<coord.length;i++) for(let j=i+1;j<coord.length;j++){
+      const dx=coord[i].x_mm-coord[j].x_mm, dy=coord[i].y_mm-coord[j].y_mm;
+      groupMm=Math.max(groupMm,Math.sqrt(dx*dx+dy*dy));
+    }
+  }
+
+  // Get distance + unit from session for angular conversion
+  const sess=smSession||smvSession;
+  const distYd = sess ? (sess.dist_unit==='m'
+    ? (sess.dist||sess.distance||0)*1.09361
+    : (sess.dist||sess.distance||0)) : 0;
+  const grpUnit = perfUnits().angle;
+
+  const groupAng  = mmToAngular(groupMm,  distYd, grpUnit);
+  const groupXAng = mmToAngular(groupXmm, distYd, grpUnit);
+  const groupYAng = mmToAngular(groupYmm, distYd, grpUnit);
+
+  if(groupAng!=null)  html+=`<span>Group: <b>${groupAng} ${grpUnit}</b></span>`;
+  if(groupXAng!=null) html+=`<span>Grp X: <b>${groupXAng} ${grpUnit}</b></span>`;
+  if(groupYAng!=null) html+=`<span>Grp Y: <b>${groupYAng} ${grpUnit}</b></span>`;
+  bar.innerHTML=html;
+}
+
+async function smSaveShots(){
+  if(!smPerfId||!smSession) return;
+  const shots=smShots.filter((_,i)=>smSelected.has(i));
+  const btn=document.getElementById('sm-save-btn'); btn.disabled=true;
+  try{
+    await api('POST',`/api/performance/${smPerfId}/shots`,{
+      shots, face_id:smSession.face_id,
+      distance:smSession.distance, dist_unit:smSession.dist_unit,
+      bullet_d_mm:smSession.bullet_d_mm
+    });
+    snack('Shots saved','ok');
+    closeModal('sm-upload-overlay');
+    await fetchPerformance();
+  }catch(e){snack('Error: '+e.message,'err')}
+  btn.disabled=false;
+}
+
+// ── Viewer (saved shots) ──────────────────────────────────────
+async function openShotViewer(perfId){
+  smvPerfId=perfId;
+  const perf=allPerf.find(p=>p.id===perfId);
+  document.getElementById('sm-view-title').textContent=
+    perf?(perf.lot_number||'Session')+' · '+(perf.distance||'')+' '+(perf.distance_unit||''):'Shot Group';
+  setLoading(true);
+  try{
+    const shots=await api('GET',`/api/performance/${perfId}/shots`);
+    if(!shots.length){ smvOpenUpload(perfId); setLoading(false); return; }
+    smvShots=shots;
+    smvSession={face_id:shots[0].face_id||'NRA_MR1',distance:shots[0].distance||600,dist_unit:shots[0].dist_unit||'y',bullet_d_mm:shots[0].bullet_d_mm||7.82};
+    smvSelected=new Set(shots.map((_,i)=>i).filter(i=>!shots[i].sighter));
+    openModal('sm-view-overlay');
+    smvResetView();
+    requestAnimationFrame(()=>smvInitCanvas());
+    const rec=shots.filter(s=>!s.sighter);
+    document.getElementById('smv-info').textContent=`${rec.length} record · ${shots[0].face_id||''} · ${shots[0].distance||''}${shots[0].dist_unit||''}`;
+    smvBuildShotList();
+    smvUpdateStats();
+
+    // Load data strip
+    const loadBar=document.getElementById('smv-load-bar');
+    loadBar.style.display='none';
+    if(perf?.lot_number){
+      try{
+        const loads=await api('GET',`/api/loads?search=${encodeURIComponent(perf.lot_number)}`);
+        const load=loads.find(l=>l.lot_number===perf.lot_number);
+        if(load){
+          const fields=[
+            load.cartridge,
+            [load.bullet_manufacturer, load.bullet_type, load.bullet_weight ? load.bullet_weight+'gr' : null].filter(Boolean).join(' '),
+            load.powder_type && load.powder_weight ? `${load.powder_type} ${load.powder_weight}gr` : load.powder_type,
+            load.cartridge_length ? `COAL ${load.cartridge_length}` : null,
+            load.base_to_ogive ? `BTO ${load.base_to_ogive}` : null,
+            load.primer,
+          ].filter(Boolean);
+          loadBar.innerHTML = fields.map(f=>
+            `<span style="display:flex;align-items:center;gap:4px"><span style="color:var(--p);font-size:14px" class="mi material-icons-round">fiber_manual_record</span>${f}</span>`
+          ).join('');
+          loadBar.style.display='flex';
+        }
+      }catch(e){}
+    }
+  }catch(e){snack('Error loading shots','err')}
+  setLoading(false);
+}
+
+function smvOpenUpload(perfId){
+  smPerfId=perfId;
+  document.getElementById('sm-step-upload').style.display='';
+  document.getElementById('sm-step-select').style.display='none';
+  document.getElementById('sm-save-btn').style.display='none';
+  document.getElementById('sm-session-info').textContent='';
+  document.getElementById('sm-upload-err').style.display='none';
+  smResetDropZone();
+  openModal('sm-upload-overlay');
+}
+
+function smvUploadNew(){ closeModal('sm-view-overlay'); smvOpenUpload(smvPerfId); }
+
+// ── Shared canvas renderer ────────────────────────────────────
+function smMoaMm(dist,unit){
+  return dist*(unit==='y'?0.9144:1)*1000/3438;
+}
+
+function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId){
+  const C=document.getElementById(canvasId); if(!C) return;
+  const wrap=C.parentElement;
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  if(!W||!H) return;
+  const dpr=window.devicePixelRatio||1;
+  if(C.width!==Math.round(W*dpr)||C.height!==Math.round(H*dpr)){
+    C.width=Math.round(W*dpr); C.height=Math.round(H*dpr);
+    C.style.width=W+'px'; C.style.height=H+'px';
+  }
+  const ctx=C.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+
+  const RINGS=smGetRings(faceId||(shots&&shots[0]&&shots[0].face_id)||'NRA_MR1');
+  const baseScale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40);
+  const scale=baseScale*zl;
+  const cx=W/2+panX, cy=H/2+panY;
+  const vR=(RINGS[RINGS.length-1].r+40)*scale;
+
+  function tc(x,y){return[cx+x*scale, cy-y*scale];}
+
+  // Board
+  ctx.beginPath(); ctx.arc(cx,cy,900*scale,0,Math.PI*2);
+  ctx.fillStyle=SM_WHITE; ctx.fill();
+
+  // Ring fills
+  for(let i=RINGS.length-1;i>=0;i--){
+    ctx.beginPath(); ctx.arc(cx,cy,RINGS[i].r*scale,0,Math.PI*2);
+    ctx.fillStyle=RINGS[i].dark?SM_GRAY:SM_WHITE; ctx.fill();
+  }
+  // Ring strokes
+  for(let i=RINGS.length-1;i>=0;i--){
+    ctx.beginPath(); ctx.arc(cx,cy,RINGS[i].r*scale,0,Math.PI*2);
+    ctx.strokeStyle=RINGS[i].dark?SM_WHITE:SM_GRAY;
+    ctx.lineWidth=Math.max(0.8,2); ctx.stroke();
+  }
+
+  // Grid 1 MOA
+  const moaMm=shots&&shots.length?smMoaMm(shots[0].distance||600,shots[0].dist_unit||'y'):smMoaMm(600,'y');
+  const step=moaMm*scale;
+  const grayR=RINGS[Math.min(4,RINGS.length-1)].r*scale;
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,grayR,0,Math.PI*2); ctx.clip();
+  ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.5;
+  for(let v=-9;v<=9;v++){
+    ctx.beginPath();ctx.moveTo(cx+v*step,cy-vR);ctx.lineTo(cx+v*step,cy+vR);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-vR,cy-v*step);ctx.lineTo(cx+vR,cy-v*step);ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx,cy,900*scale,0,Math.PI*2);
+  ctx.arc(cx,cy,grayR,0,Math.PI*2);
+  ctx.clip('evenodd');
+  ctx.strokeStyle='rgba(136,136,132,0.28)'; ctx.lineWidth=0.5;
+  for(let v=-9;v<=9;v++){
+    ctx.beginPath();ctx.moveTo(cx+v*step,cy-vR);ctx.lineTo(cx+v*step,cy+vR);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-vR,cy-v*step);ctx.lineTo(cx+vR,cy-v*step);ctx.stroke();
+  }
+  ctx.restore();
+
+  // Score labels — centred at 12 o'clock on each ring band
+  const labelFs=Math.max(8,Math.min(12,10*scale/baseScale*0.5));
+  RINGS.forEach((ring,i)=>{
+    const lr=i===0?ring.r*0.62:(RINGS[i-1].r+ring.r)*0.5;
+    const tx=cx;                          // exactly centred horizontally
+    const ty=cy - lr*scale;               // straight up (12 o'clock)
+    ctx.fillStyle=ring.dark?'rgba(255,255,255,0.65)':'rgba(80,80,70,0.75)';
+    ctx.font=`500 ${labelFs}px sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(ring.score,tx,ty);
+  });
+
+  if(!shots||!shots.length) return;
+
+  const bR=Math.max((bulletD||7.82)*scale/2,3);
+
+  // Sighters first, then record
+  [...shots.filter(s=>s.sighter), ...shots.filter(s=>!s.sighter)].forEach((s,_,arr)=>{
+    if(s.x_mm==null) return;
+    const dimmed=selected&&!selected.has(s._i!==undefined?s._i:arr.indexOf(s));
+    const [px,py]=tc(s.x_mm,s.y_mm);
+    ctx.save();
+    if(dimmed) ctx.globalAlpha=0.2;
+    const shotCol=s._color||null;
+    if(s.sighter){
+      ctx.fillStyle=shotCol?shotCol+'88':'rgba(0,0,0,0.55)';
+      ctx.beginPath(); ctx.arc(px,py,bR,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=shotCol||'#88ff88'; ctx.lineWidth=Math.max(1,1.2); ctx.stroke();
+    } else {
+      ctx.fillStyle=shotCol?shotCol+'cc':'rgba(0,0,0,0.72)';
+      ctx.beginPath(); ctx.arc(px,py,bR,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle=shotCol?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.9)'; ctx.lineWidth=Math.max(0.8,1.1); ctx.stroke();
+      if(!shotCol){ ctx.fillStyle='rgba(0,0,0,0.95)'; ctx.beginPath(); ctx.arc(px,py,bR*0.55,0,Math.PI*2); ctx.fill(); }
+    }
+    if(zl>0.6){
+      const fs=Math.max(8,Math.min(13,9*Math.sqrt(zl)));
+      ctx.globalAlpha=dimmed?0.25:1;
+      ctx.font=`400 ${fs}px sans-serif`;
+      ctx.fillStyle='rgba(0,0,0,0.82)';
+      ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(s.label||'', px+bR+1.5, py-0.5);
+    }
+    ctx.restore();
+  });
+}
+
+// ── Canvas init & interaction ─────────────────────────────────
+function smPointerDist(e){ // for pinch
+  const t=e.targetTouches||[];
+  if(t.length<2) return null;
+  return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+}
+
+function smInitCanvas(){
+  const C=document.getElementById('sm-canvas');
+  if(!C) return;
+  let dragStart=null;
+  smResizeAndDraw();
+
+  C.onwheel=e=>{
+    e.preventDefault();
+    const f=e.deltaY<0?1.12:0.89;
+    smZoomLevel=Math.max(0.25,Math.min(30,smZoomLevel*f));
+    smResizeAndDraw();
+  };
+
+  // Pointer (mouse + single-touch)
+  C.onpointerdown=e=>{
+    if(e.pointerType==='touch') return; // handled by touch events
+    dragStart={x:e.clientX-smPanX,y:e.clientY-smPanY};
+    C.setPointerCapture(e.pointerId);
+    C.style.cursor='grabbing';
+  };
+  C.onpointermove=e=>{
+    if(dragStart&&e.pointerType!=='touch'){
+      smPanX=e.clientX-dragStart.x; smPanY=e.clientY-dragStart.y;
+      smResizeAndDraw();
+    } else if(e.pointerType!=='touch') {
+      smHover(e,'sm-canvas','sm-tip');
+    }
+  };
+  C.onpointerup=e=>{dragStart=null; C.style.cursor='grab';};
+  C.onmouseleave=()=>document.getElementById('sm-tip').style.display='none';
+
+  // Touch: pan + pinch-zoom
+  let touchStart=null, touchPanStart=null;
+  C.addEventListener('touchstart',e=>{
+    if(e.touches.length===1){
+      touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
+      touchPanStart={x:smPanX,y:smPanY};
+      smPinchDist=null;
+    } else if(e.touches.length===2){
+      smPinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+      smPinchZoomStart=smZoomLevel;
+    }
+    e.preventDefault();
+  },{passive:false});
+  C.addEventListener('touchmove',e=>{
+    if(e.touches.length===1&&touchStart){
+      smPanX=touchPanStart.x+(e.touches[0].clientX-touchStart.x);
+      smPanY=touchPanStart.y+(e.touches[0].clientY-touchStart.y);
+      smResizeAndDraw();
+    } else if(e.touches.length===2&&smPinchDist){
+      const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+      smZoomLevel=Math.max(0.25,Math.min(30,smPinchZoomStart*(d/smPinchDist)));
+      smResizeAndDraw();
+    }
+    e.preventDefault();
+  },{passive:false});
+  C.addEventListener('touchend',e=>{touchStart=null;smPinchDist=null;});
+
+  new ResizeObserver(()=>smResizeAndDraw()).observe(C.parentElement);
+}
+
+function smResizeAndDraw(){
+  const shots=smShots.map((s,i)=>({...s,_i:i}));
+  smRender('sm-canvas',shots,smSelected,smZoomLevel,smPanX,smPanY,smSession?.bullet_d_mm,smSession?.face_id);
+}
+function smZoom(f){smZoomLevel=Math.max(0.25,Math.min(30,smZoomLevel*f));smResizeAndDraw();}
+function smResetView(){smZoomLevel=1;smPanX=0;smPanY=0;if(smSession)smResizeAndDraw();}
+
+// ── Generic interactive canvas ─────────────────────────────────
+// Used by both the shot viewer and comparison canvases
+function initInteractiveCanvas(cvId, getShots, getBulletD, onHover){
+  const C=document.getElementById(cvId); if(!C) return;
+  let zl=1, panX=0, panY=0, dragStart=null, pinchDist=null, pinchZoomStart=1, touchStart=null, touchPanStart=null;
+
+  function draw(){ smRender(cvId, getShots(), null, zl, panX, panY, getBulletD()); }
+  function zoom(f){ zl=Math.max(0.25,Math.min(30,zl*f)); draw(); }
+  function reset(){ zl=1; panX=0; panY=0; draw(); }
+
+  C.onwheel=e=>{ e.preventDefault(); zoom(e.deltaY<0?1.12:0.89); };
+  C.onpointerdown=e=>{ if(e.pointerType==='touch') return; dragStart={x:e.clientX-panX,y:e.clientY-panY}; C.setPointerCapture(e.pointerId); C.style.cursor='grabbing'; };
+  C.onpointermove=e=>{
+    if(dragStart&&e.pointerType!=='touch'){ panX=e.clientX-dragStart.x; panY=e.clientY-dragStart.y; draw(); }
+    else if(onHover&&e.pointerType!=='touch'){ onHover(e,cvId,zl,panX,panY); }
+  };
+  C.onpointerup=()=>{ dragStart=null; C.style.cursor='grab'; };
+  C.addEventListener('touchstart',e=>{
+    if(e.touches.length===1){ touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}; touchPanStart={x:panX,y:panY}; pinchDist=null; }
+    else if(e.touches.length===2){ pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); pinchZoomStart=zl; }
+    e.preventDefault();
+  },{passive:false});
+  C.addEventListener('touchmove',e=>{
+    if(e.touches.length===1&&touchStart){ panX=touchPanStart.x+(e.touches[0].clientX-touchStart.x); panY=touchPanStart.y+(e.touches[0].clientY-touchStart.y); draw(); }
+    else if(e.touches.length===2&&pinchDist){ const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); zl=Math.max(0.25,Math.min(30,pinchZoomStart*(d/pinchDist))); draw(); }
+    e.preventDefault();
+  },{passive:false});
+  C.addEventListener('touchend',()=>{ touchStart=null; pinchDist=null; });
+  new ResizeObserver(()=>draw()).observe(C.parentElement);
+  draw();
+  return {draw, zoom, reset};
+}
+
+function smvInitCanvas(){
+  const ctrl=initInteractiveCanvas('smv-canvas',()=>smvShots,()=>smvSession?.bullet_d_mm||7.82,smvHover);
+  smvResizeAndDraw=ctrl.draw;
+  smvZoom=f=>ctrl.zoom(f);
+  smvResetView=()=>ctrl.reset();
+  document.getElementById('smv-canvas').onmouseleave=()=>document.getElementById('smv-tip').style.display='none';
+}
+
+function smvResizeAndDraw(){
+  smRender('smv-canvas',smvShots,smvSelected,smvZoomLevel,smvPanX,smvPanY,smvSession?.bullet_d_mm,smvSession?.face_id);
+}
+function smvZoom(f){smvZoomLevel=Math.max(0.25,Math.min(30,smvZoomLevel*f));smvResizeAndDraw();}
+function smvResetView(){smvZoomLevel=1;smvPanX=0;smvPanY=0;smvResizeAndDraw();}
+
+function smvBuildShotList(){
+  const wrap=document.getElementById('smv-shot-items'); if(!wrap) return;
+  wrap.innerHTML='';
+  smvShots.forEach((s,i)=>{
+    const item=document.createElement('div');
+    item.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;user-select:none';
+    item.onmouseenter=()=>{item.style.background='var(--sfv)'};
+    item.onmouseleave=()=>{item.style.background=''};
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.checked=smvSelected.has(i);
+    cb.style.cssText='width:14px;height:14px;cursor:pointer;flex-shrink:0;accent-color:var(--p)';
+    cb.onchange=()=>{smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();};
+    const lbl=document.createElement('label');
+    lbl.style.cssText='font-size:12px;cursor:pointer;line-height:1.3';
+    const tag=s.sighter?'Sighter':'Shot';
+    const vel=s.v_fps?` · ${fmtVel(s.v_fps)}`:'';
+    lbl.innerHTML=`<b>${tag} ${s.label||i+1}</b>${s.score?' '+s.score:''}${vel}`;
+    item.onclick=e=>{if(e.target!==cb){cb.checked=!cb.checked;smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();}};
+    item.appendChild(cb); item.appendChild(lbl);
+    wrap.appendChild(item);
+  });
+}
+function smvCheckAll(checked){
+  smvShots.forEach((_,i)=>{checked?smvSelected.add(i):smvSelected.delete(i);});
+  smvBuildShotList(); smvUpdateStats(); smvResizeAndDraw();
+}
+function smvCheckType(type){
+  smvShots.forEach((s,i)=>{
+    const want=(type==='sighter')?!!s.sighter:!s.sighter;
+    want?smvSelected.add(i):smvSelected.delete(i);
+  });
+  smvBuildShotList(); smvUpdateStats(); smvResizeAndDraw();
+}
+function smvUpdateStats(){
+  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)));
+}
+
+// ── Hover tooltip (desktop only) ──────────────────────────────
+function smHover(e,canvasId,tipId){
+  const C=document.getElementById(canvasId);
+  const tip=document.getElementById(tipId);
+  const shots=canvasId==='sm-canvas'?smShots:smvShots;
+  const sess=canvasId==='sm-canvas'?smSession:smvSession;
+  if(!shots||!shots.length){tip.style.display='none';return;}
+  const wrap=C.parentElement, W=wrap.clientWidth, H=wrap.clientHeight;
+  const zl=canvasId==='sm-canvas'?smZoomLevel:smvZoomLevel;
+  const px=canvasId==='sm-canvas'?smPanX:smvPanX;
+  const py=canvasId==='sm-canvas'?smPanY:smvPanY;
+  const RINGS=smGetRings(faceId||(shots&&shots[0]&&shots[0].face_id)||'NRA_MR1');
+  const baseScale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40);
+  const scale=baseScale*zl;
+  const cx=W/2+px, cy=H/2+py;
+  const rect=C.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  const smm_x=(mx-cx)/scale, smm_y=-(my-cy)/scale;
+  let hit=null, best=Infinity;
+  shots.forEach((s,i)=>{
+    if(s.x_mm==null) return;
+    const d=Math.hypot(s.x_mm-smm_x,s.y_mm-smm_y);
+    if(d<25&&d<best){best=d;hit={...s,_i:i};}
+  });
+  if(hit){
+    const moaMm=smMoaMm(sess?.distance||600,sess?.dist_unit||'y');
+    const r=Math.hypot(hit.x_mm,hit.y_mm).toFixed(1);
+    tip.style.display='block';
+    tip.innerHTML=`<b>${hit.sighter?'Sighter ':'Shot '}${hit.label||''}</b> ${hit.score||''}<br>`+
+      `x: ${hit.x_mm?.toFixed(1)} mm &nbsp;y: ${hit.y_mm?.toFixed(1)} mm<br>`+
+      `r: ${r} mm &nbsp;(${(hit.x_mm/moaMm).toFixed(2)} / ${(hit.y_mm/moaMm).toFixed(2)} MOA)`+
+      (hit.v_fps?`<br>v: ${hit.v_fps} fps`:'');
+    tip.style.left=Math.min(mx+14,W-185)+'px';
+    tip.style.top=Math.max(my-65,4)+'px';
+  } else tip.style.display='none';
+}
+function smvHover(e){smHover(e,'smv-canvas','smv-tip');}
+
+// Spin animation
+const _smStyle=document.createElement('style');
+_smStyle.textContent='@keyframes smSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+document.head.appendChild(_smStyle);
 </script>
 </body>
 </html>
