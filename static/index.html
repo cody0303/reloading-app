@@ -481,6 +481,14 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       </div>
     </div>
 
+    <!-- Loads table settings -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">table_rows</span>Loads Table</h3>
+      <div class="fl" style="margin-bottom:8px">Columns shown on mobile</div>
+      <div id="mobile-col-toggles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px"></div>
+      <div class="toggle-sub" style="margin-top:10px">Desktop always shows every column. Press Save to apply.</div>
+    </div>
+
     <!-- Inventory settings -->
     <div class="settings-card">
       <h3><span class="mi material-icons-round">warehouse</span>Inventory</h3>
@@ -935,21 +943,35 @@ const LOAD_COLS=[
   {key:'date',label:'Date',type:'text'},
   {key:'cartridge',label:'Cartridge',type:'text'},
   {key:'rounds_made',label:'Rounds',type:'num'},
-  {key:'bullet_type',label:'Bullet',type:'text',hide:true},
-  {key:'bullet_weight',label:'Blt Wt',type:'num',hide:true},
+  {key:'bullet_type',label:'Bullet',type:'text'},
+  {key:'bullet_weight',label:'Blt Wt',type:'num'},
   {key:'powder_type',label:'Powder',type:'text'},
   {key:'powder_weight',label:'Charge',type:'num'},
-  {key:'cartridge_length',label:'COAL',type:'num',hide:true},
-  {key:'primer',label:'Primer',type:'text',hide:true},
+  {key:'cartridge_length',label:'COAL',type:'num'},
+  {key:'primer',label:'Primer',type:'text'},
   {key:'annealed',label:'Annealed',type:'badge'},
 ];
 
+// Columns shown on narrow screens; desktop always shows all of them
+const DEFAULT_MOBILE_COLS=['id','lot_number','date','cartridge','rounds_made','powder_type','powder_weight','annealed'];
+function mobileLoadCols(){
+  const v=settingsCache.mobile_load_cols;
+  return new Set(v===undefined?DEFAULT_MOBILE_COLS:v.split(',').filter(Boolean));
+}
+function applyLoadCols(){
+  const show=mobileLoadCols();
+  document.querySelectorAll('#loads-head th[data-key], #loads-body td[data-key]').forEach(el=>{
+    el.classList.toggle('col-hide',!show.has(el.dataset.key));
+  });
+}
+
 function buildLoadsHead(){
   const tr=document.getElementById('loads-head');
+  const showOnMobile=mobileLoadCols();
   LOAD_COLS.forEach(col=>{
     const th=document.createElement('th');
     th.dataset.key=col.key;
-    if(col.hide) th.classList.add('col-hide');
+    if(!showOnMobile.has(col.key)) th.classList.add('col-hide');
     if(col.key==='id') th.style.width='44px';
     th.innerHTML=`${col.label}<span class="si material-icons-round">unfold_more</span>`;
     th.onclick=()=>sortLoads(col.key);
@@ -996,10 +1018,12 @@ function renderLoads(rows){
   const nd=document.getElementById('loads-empty');
   tbody.innerHTML='';
   nd.style.display=rows.length?'none':'flex';
+  const showOnMobile=mobileLoadCols();
   rows.forEach(row=>{
     const tr=document.createElement('tr');
     LOAD_COLS.forEach(col=>{
       const td=document.createElement('td');
+      td.dataset.key=col.key;
       const v=row[col.key];
       if(col.key==='id'){td.className='c-id';td.textContent=v;}
       else if(col.type==='badge'){
@@ -1008,7 +1032,7 @@ function renderLoads(rows){
         if(col.type==='num') td.className='c-num';
         td.textContent=(v!=null&&v!=='')?v:'—';
       }
-      if(col.hide) td.classList.add('col-hide');
+      if(!showOnMobile.has(col.key)) td.classList.add('col-hide');
       tr.appendChild(td);
     });
     const atd=document.createElement('td');atd.className='c-act';
@@ -1183,8 +1207,14 @@ async function regenerateLabelKey(){
     snack('Label key regenerated','ok');
   }catch(e){snack('Error regenerating key','err')}
 }
-async function fetchLabelKey(){
-  try{const s=await api('GET','/api/settings');labelKey=s.label_key||'';}catch(e){}
+async function fetchAppSettings(){
+  try{
+    const s=await api('GET','/api/settings');
+    labelKey=s.label_key||'';
+    settingsCache=s;
+    applyLoadCols();
+    if(allPerf.length) renderPerf(allPerf);
+  }catch(e){}
 }
 function printLabel(id){window.open(`/api/loads/${id}/label?key=${encodeURIComponent(labelKey)}`,'_blank')}
 
@@ -1997,8 +2027,8 @@ const LABEL_FIELDS=[
     {key:'powder_type',         label:'Powder type'},
     {key:'powder_weight',       label:'Powder charge'},
   ]},
-  {group:'Dimensions',fields:[
-    {key:'cartridge_length',    label:'COAL'},
+  {group:'',fields:[
+    {key:'dims', seg:true, label:'COAL / BTO', sub:'Auto prints whichever the load has'},
     {key:'primer',              label:'Primer'},
   ]},
   {group:'Footer bar fields',fields:[
@@ -2007,7 +2037,6 @@ const LABEL_FIELDS=[
     {key:'annealed',            label:'Annealed'},
     {key:'number_of_loads',     label:'Times brass fired'},
     {key:'rounds_made',         label:'Rounds made'},
-    {key:'base_to_ogive',      label:'Base to Ogive (BTO)'},
   ]},
 ];
 
@@ -2024,12 +2053,37 @@ async function loadSettings(){
     setPerfUnit('speed', s.perf_speed||'fps', false);
     setPerfUnit('angle', s.perf_angle||'MOA', false);
 
+    const showOnMobile=mobileLoadCols();
+    document.getElementById('mobile-col-toggles').innerHTML=LOAD_COLS.map(c=>`
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="s-mcol-${c.key}" ${showOnMobile.has(c.key)?'checked':''} style="width:16px;height:16px;accent-color:var(--p)">
+        ${c.key==='id'?'# (ID)':c.label}
+      </label>`).join('');
+
     // Build per-field label toggles grouped by section
     const wrap=document.getElementById('label-toggles');
     wrap.innerHTML='';
     LABEL_FIELDS.forEach(group=>{
-      wrap.innerHTML+=`<div style="font-size:11px;font-weight:500;color:var(--osv);text-transform:uppercase;letter-spacing:1px;margin:10px 0 4px">${group.group}</div>`;
+      wrap.innerHTML+=group.group
+        ?`<div style="font-size:11px;font-weight:500;color:var(--osv);text-transform:uppercase;letter-spacing:1px;margin:10px 0 4px">${group.group}</div>`
+        :`<div style="height:16px"></div>`;
       group.fields.forEach(f=>{
+        if(f.seg){
+          wrap.innerHTML+=`
+            <div class="toggle-row">
+              <div>
+                <div class="toggle-label">${f.label}</div>
+                <div class="toggle-sub">${f.sub}</div>
+              </div>
+              <div class="unit-toggle">
+                <button id="ld-off" onclick="setLabelDims('off')">Off</button>
+                <button id="ld-auto" onclick="setLabelDims('auto')">Auto</button>
+                <button id="ld-coal" onclick="setLabelDims('coal')">COAL</button>
+                <button id="ld-bto" onclick="setLabelDims('bto')">BTO</button>
+              </div>
+            </div>`;
+          return;
+        }
         const on=(s[`label_show_${f.key}`]||'1')==='1';
         wrap.innerHTML+=`
           <div class="toggle-row">
@@ -2041,6 +2095,7 @@ async function loadSettings(){
           </div>`;
       });
     });
+    setLabelDims(labelDimsMode(), false);
   }catch(e){snack('Error loading settings','err')}
 }
 
@@ -2077,13 +2132,26 @@ async function saveSettings(){
   };
   LABEL_FIELDS.forEach(group=>{
     group.fields.forEach(f=>{
+      if(f.seg) return;
       data[`label_show_${f.key}`]=document.getElementById(`s-show-${f.key}`)?.checked?'1':'0';
     });
   });
+  data.label_dims_mode=labelDimsMode();
   data.perf_speed=settingsCache.perf_speed||'fps';
   data.perf_angle=settingsCache.perf_angle||'MOA';
-  try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};}
+  if(document.getElementById('s-mcol-id')){
+    data.mobile_load_cols=LOAD_COLS.filter(c=>document.getElementById('s-mcol-'+c.key)?.checked).map(c=>c.key).join(',');
+  }
+  try{await api('POST','/api/settings',data);snack('Settings saved','ok');settingsCache={...settingsCache,...data};applyLoadCols();}
   catch(e){snack('Error saving settings','err')}
+}
+
+function labelDimsMode(){
+  return settingsCache.label_dims_mode||((settingsCache.label_show_cartridge_length||'1')==='1'?'auto':'off');
+}
+function setLabelDims(mode, save=true){
+  ['off','auto','coal','bto'].forEach(m=>document.getElementById('ld-'+m)?.classList.toggle('active',m===mode));
+  if(save) settingsCache.label_dims_mode=mode;
 }
 
 function setPerfUnit(type, val, save=true){
@@ -2378,7 +2446,7 @@ function drawCmpCanvas(cvId, sessions, allShots, showSighters){
 
 // ══ Init ══════════════════════════════════════════════════════
 buildLoadsHead();
-Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchLabelKey()]);
+Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
 </script>
 
 

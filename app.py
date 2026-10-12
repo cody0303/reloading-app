@@ -116,7 +116,6 @@ def init_db():
         "label_show_annealed":            "1",
         "label_show_number_of_loads":     "1",
         "label_show_rounds_made":         "0",
-        "label_show_base_to_ogive":       "0",
         "auto_decrement": "1",
     }
     for k, v in defaults.items():
@@ -724,12 +723,18 @@ def print_label(load_id):
         body_fields.append(("POWDER", val("powder_type")))
     if show("powder_weight"):
         body_fields.append(("CHG gr", val("powder_weight")))
-    if show("cartridge_length"):
-        body_fields.append(("COAL", val("cartridge_length")))
+    # COAL and BTO are alternate ways to give the same dimension, so they share one cell.
+    # Older settings only had the COAL on/off switch, so fall back to it when no mode is saved.
+    dims_mode = s.get("label_dims_mode") or ("auto" if show("cartridge_length") else "off")
+    if dims_mode != "off":
+        coal, bto = val("cartridge_length"), val("base_to_ogive")
+        if dims_mode == "coal":   dims = [("COAL", coal)]
+        elif dims_mode == "bto":  dims = [("BTO", bto)]
+        else:                     dims = [(lbl, v) for lbl, v in (("COAL", coal), ("BTO", bto)) if v]
+        if not dims: dims = [("COAL", "")]
+        body_fields.append((" / ".join(d[0] for d in dims), " / ".join(d[1] for d in dims if d[1])))
     if show("primer"):
         body_fields.append(("PRIMER", val("primer")))
-    if show("base_to_ogive"):
-        body_fields.append(("BTO", val("base_to_ogive")))
 
     if not body_fields:
         c.save(); buf.seek(0)
