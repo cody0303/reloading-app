@@ -1706,8 +1706,8 @@ function pfApplySession(session){
     document.getElementById('pf-dist-unit').value=session.dist_unit==='y'?'yd':'m';
   }
 
-  // Default: select all record shots
-  pfShotSelected=new Set(session.shots.map((_,i)=>i).filter(i=>!session.shots[i].sighter));
+  // Default: select all shots, sighters included
+  pfShotSelected=new Set(session.shots.map((_,i)=>i));
   pfLastShotClick=null;
 
   // Show shot selector
@@ -2601,7 +2601,7 @@ async function smUploadFile(file){
         `Supported faces: ${[...SM_SUPPORTED].join(', ')}.`
       );
     }
-    smSelected=new Set(smShots.filter(s=>!s.sighter).map((_,i)=>i));
+    smSelected=new Set(smShots.map((_,i)=>i));
     document.getElementById('sm-step-upload').style.display='none';
     const sel=document.getElementById('sm-step-select');
     sel.style.display='flex';
@@ -2915,28 +2915,26 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId){
   // Grid 1 MOA
   const moaMm=shots&&shots.length?smMoaMm(shots[0].distance||600,shots[0].dist_unit||'y'):smMoaMm(600,'y');
   const step=moaMm*scale;
-  const grayR=RINGS[Math.min(4,RINGS.length-1)].r*scale;
+  // Grid is drawn per ring band so line colour contrasts with that band's fill
+  const bands=RINGS.map((ring,i)=>({
+    outer:ring.r*scale, inner:i===0?0:RINGS[i-1].r*scale, dark:!!ring.dark
+  }));
+  bands.push({outer:900*scale, inner:RINGS[RINGS.length-1].r*scale, dark:false});
 
-  ctx.save();
-  ctx.beginPath(); ctx.arc(cx,cy,grayR,0,Math.PI*2); ctx.clip();
-  ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.5;
-  for(let v=-9;v<=9;v++){
-    ctx.beginPath();ctx.moveTo(cx+v*step,cy-vR);ctx.lineTo(cx+v*step,cy+vR);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(cx-vR,cy-v*step);ctx.lineTo(cx+vR,cy-v*step);ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx,cy,900*scale,0,Math.PI*2);
-  ctx.arc(cx,cy,grayR,0,Math.PI*2);
-  ctx.clip('evenodd');
-  ctx.strokeStyle='rgba(136,136,132,0.28)'; ctx.lineWidth=0.5;
-  for(let v=-9;v<=9;v++){
-    ctx.beginPath();ctx.moveTo(cx+v*step,cy-vR);ctx.lineTo(cx+v*step,cy+vR);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(cx-vR,cy-v*step);ctx.lineTo(cx+vR,cy-v*step);ctx.stroke();
-  }
-  ctx.restore();
+  bands.forEach(b=>{
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx,cy,b.outer,0,Math.PI*2);
+    if(b.inner>0) ctx.arc(cx,cy,b.inner,0,Math.PI*2);
+    ctx.clip('evenodd');
+    ctx.strokeStyle=b.dark?'rgba(255,255,255,0.22)':'rgba(136,136,132,0.28)';
+    ctx.lineWidth=0.5;
+    for(let v=-9;v<=9;v++){
+      ctx.beginPath();ctx.moveTo(cx+v*step,cy-vR);ctx.lineTo(cx+v*step,cy+vR);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx-vR,cy-v*step);ctx.lineTo(cx+vR,cy-v*step);ctx.stroke();
+    }
+    ctx.restore();
+  });
 
   // Score labels — centred at 12 o'clock on each ring band
   const labelFs=Math.max(8,Math.min(12,10*scale/baseScale*0.5));
