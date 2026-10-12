@@ -54,13 +54,20 @@ jobs:
             ${{ env.IMAGE }}:v${{ steps.ver.outputs.num }}
             ${{ env.IMAGE }}:latest
 
-      - name: Pin new version in Portainer compose file
+      - name: Pin new version on the deploy branch
         run: |
-          git fetch origin main
-          git checkout main
-          sed -i "s|\(image: ${IMAGE}:\).*|\1v${{ steps.ver.outputs.num }}|" docker-compose.portainer.yml
+          sed "s|\(image: ${IMAGE}:\).*|\1v${{ steps.ver.outputs.num }}|" \
+            docker-compose.portainer.yml > "$RUNNER_TEMP/compose.yml"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin deploy > /dev/null; then
+            git fetch origin deploy
+            git checkout -f -B deploy origin/deploy
+          else
+            git checkout --orphan deploy
+            git rm -rf --quiet .
+          fi
+          cp "$RUNNER_TEMP/compose.yml" docker-compose.portainer.yml
           git add docker-compose.portainer.yml
           git commit -m "Deploy v${{ steps.ver.outputs.num }}" || echo "nothing to commit"
-          git push origin main
+          git push origin deploy
