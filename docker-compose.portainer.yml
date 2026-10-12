@@ -1,0 +1,15 @@
+services:
+  reloading-app:
+    image: ghcr.io/cody0303/reloading-app:v57
+    container_name: reloading-app
+    ports:
+      - "5002:5000"
+    volumes:
+      - reloading-app-data:/data
+    environment:
+      - DB_PATH=/data/reloading.db
+    restart: unless-stopped
+
+volumes:
+  reloading-app-data:
+    external: true
