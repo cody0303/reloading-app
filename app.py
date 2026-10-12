@@ -460,6 +460,11 @@ def delete_performance(pid):
     conn.close()
     return jsonify({"ok": True})
 
+# ── Version ───────────────────────────────────────────────────
+@app.route("/api/version")
+def app_version():
+    return jsonify({"version": os.environ.get("APP_VERSION", "dev")})
+
 # ── Stats ─────────────────────────────────────────────────────
 @app.route("/api/stats")
 def stats():

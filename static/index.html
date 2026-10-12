@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Reloading Log</title>
+<script>
+(function(){
+  var m='device';
+  try{m=localStorage.getItem('theme')||'device'}catch(e){}
+  var dark=m==='dark'||(m!=='light'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme=dark?'dark':'light';
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
 <style>
@@ -258,7 +266,6 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   <div class="nav-end">
     <div class="stat-pill"><span class="mi material-icons-round">inventory_2</span><strong id="sn-loads">—</strong></div>
     <div class="stat-pill"><span class="mi material-icons-round">warehouse</span><strong id="sn-inv">—</strong></div>
-    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme"><span class="mi material-icons-round" id="theme-icon">dark_mode</span></button>
     <button class="icon-btn" onclick="exportCSV()" title="Export CSV"><span class="mi material-icons-round">download</span></button>
     <label class="icon-btn" title="Import CSV" style="cursor:pointer">
       <span class="mi material-icons-round">upload</span>
@@ -529,16 +536,23 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     <!-- App settings -->
     <div class="settings-card">
       <h3><span class="mi material-icons-round">palette</span>Appearance</h3>
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Dark Mode</div>
-          <div class="toggle-sub">Switch between light and dark theme</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div class="fl">Theme</div>
+        <div class="unit-toggle" id="theme-toggle">
+          <button id="th-light" onclick="setThemeMode('light')">Light</button>
+          <button id="th-dark" onclick="setThemeMode('dark')">Dark</button>
+          <button id="th-device" onclick="setThemeMode('device')">Device</button>
         </div>
-        <label class="toggle">
-          <input type="checkbox" id="s-dark" onchange="toggleTheme()">
-          <div class="toggle-track"></div>
-          <div class="toggle-thumb"></div>
-        </label>
+        <div class="toggle-sub">Device follows your system light/dark setting</div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">info</span>About</h3>
+      <div class="toggle-row" style="border-bottom:none">
+        <div class="toggle-label">Version</div>
+        <div id="app-version" style="font-family:'Roboto Mono',monospace;font-size:13px;color:var(--osv)">—</div>
       </div>
     </div>
 
@@ -2001,8 +2015,8 @@ async function loadSettings(){
     document.getElementById('s-label-w').value=s.label_width_mm||'50';
     document.getElementById('s-label-h').value=s.label_height_mm||'30';
     setLabelUnit(s.label_units||'mm',false);
+    api('GET','/api/version').then(v=>{document.getElementById('app-version').textContent=v.version}).catch(()=>{});
     document.getElementById('s-auto-dec').checked=(s.auto_decrement||'1')==='1';
-    document.getElementById('s-dark').checked=document.documentElement.dataset.theme==='dark';
     setPerfUnit('speed', s.perf_speed||'fps', false);
     setPerfUnit('angle', s.perf_angle||'MOA', false);
 
@@ -2143,22 +2157,24 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape') document.querySelec
 // ══════════════════════════════════════════════════════════════
 // THEME
 // ══════════════════════════════════════════════════════════════
-function toggleTheme(){
-  const html=document.documentElement;
-  const dark=html.dataset.theme==='dark';
-  html.dataset.theme=dark?'light':'dark';
-  document.getElementById('theme-icon').textContent=dark?'dark_mode':'light_mode';
-  const cb=document.getElementById('s-dark');if(cb) cb.checked=!dark;
-  localStorage.setItem('theme',html.dataset.theme);
+const darkMQ=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+function themeMode(){
+  try{return localStorage.getItem('theme')||'device'}catch(e){return 'device'}
 }
-(function(){
-  const saved=localStorage.getItem('theme')||'light';
-  document.documentElement.dataset.theme=saved;
-  window.addEventListener('DOMContentLoaded',()=>{
-    document.getElementById('theme-icon').textContent=saved==='dark'?'light_mode':'dark_mode';
-    const cb=document.getElementById('s-dark');if(cb) cb.checked=saved==='dark';
+function applyTheme(){
+  const m=themeMode();
+  const dark=m==='dark'||(m!=='light'&&darkMQ&&darkMQ.matches);
+  document.documentElement.dataset.theme=dark?'dark':'light';
+  ['light','dark','device'].forEach(k=>{
+    document.getElementById('th-'+k)?.classList.toggle('active',k===m);
   });
-})();
+}
+function setThemeMode(m){
+  try{localStorage.setItem('theme',m)}catch(e){}
+  applyTheme();
+}
+if(darkMQ&&darkMQ.addEventListener) darkMQ.addEventListener('change',()=>{ if(themeMode()==='device') applyTheme(); });
+window.addEventListener('DOMContentLoaded',applyTheme);
 
 // ══════════════════════════════════════════════════════════════
 // CSV

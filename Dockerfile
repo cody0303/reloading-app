@@ -12,6 +12,9 @@ COPY static/ ./static/
 # SQLite database lives on a named volume so data persists across container restarts
 ENV DB_PATH=/data/reloading.db
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 RUN mkdir -p /data
 
 EXPOSE 5000
