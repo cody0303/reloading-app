@@ -1,0 +1,117 @@
+// Frontend tests: checks the page script compiles, then runs its pure functions on real data.
+// Needs only Node (no packages):   node tests/frontend.test.js
+//
+// Functions are lifted out of static/index.html by name, so the page itself is never executed.
+
+// Real data from the 2026-08-15 range session ("C" string, 600 yd, 22 shots) and its Garmin file.
+const GARMIN_TIMES = ['10:32:44','10:33:36','10:35:22','10:36:00','10:36:32','10:37:06','10:38:12','10:38:44','10:39:24','10:40:17','10:40:56','10:41:26','10:41:55','10:42:29','10:43:11','10:43:46','10:44:14','10:44:50','10:45:14','10:45:42','10:46:24','10:47:08','10:58:29','10:59:20','10:59:42','11:00:17'];
+const GARMIN_FPS = [2623.3,2613.5,2599.6,2594.2,2586.3,2601.7,2613.1,2612.0,2629.1,2640.4,2591.0,2631.1,2599.4,2589.9,2603.4,2621.7,2599.3,2615.6,2636.7,2616.1,2612.1,2596.5,2622.0,2608.4,2600.2,2601.3];
+const SM_TS = [1786803860075,1786803912425,1786804018185,1786804055598,1786804087939,1786804121741,1786804187525,1786804219850,1786804260121,1786804313115,1786804352347,1786804382102,1786804410449,1786804444644,1786804487004,1786804521867,1786804549151,1786804585986,1786804610219,1786804637970,1786804679816,1786804723694];
+const SM_FPS = [1421,1405,1390,1380,1377,1388,1402,1405,1410,1425,1402,1422,1405,1326,1398,1422,1409,1364,1380,1406,1389,1391];
+// Scores exactly as ShotMarker shows them (S1, S2 are sighters), total 191-5X
+const SM_SCORES = ['7','7','9','X','8','X','10','10','X','10','10','X','10','8','10','10','10','X','10','9','8','9'];
+
+function runTests(scripts) {
+  const log = [];
+  let passed = 0, failed = 0;
+  const check = (name, cond, extra) => {
+    if (cond) passed++; else failed++;
+    log.push((cond ? 'PASS ' : 'FAIL ') + name + (!cond && extra !== undefined ? '  -> ' + JSON.stringify(extra) : ''));
+  };
+
+  // 1. Every inline script in the page has to compile (the page has more than one)
+  const list = [].concat(scripts);
+  list.forEach((s, i) => {
+    try { new Function(s); check('page script ' + (i + 1) + ' of ' + list.length + ' compiles', true); }
+    catch (e) { check('page script ' + (i + 1) + ' of ' + list.length + ' compiles', false, String(e)); }
+  });
+  if (failed) return { log, passed, failed, total: passed + failed };
+  const js = list.join('\n');
+
+  // Pull a function out of the source by name (matching its braces)
+  function grab(name) {
+    const m = new RegExp('(?:async\\s+)?function\\s+' + name + '\\s*\\(').exec(js);
+    if (!m) throw new Error('function not found in page: ' + name);
+    let i = m.index + m[0].length, depth = 1;
+    while (depth && i < js.length) { const ch = js[i++]; if (ch === '(') depth++; else if (ch === ')') depth--; }
+    i = js.indexOf('{', i); depth = 0;
+    for (; i < js.length; i++) {
+      if (js[i] === '{') depth++;
+      else if (js[i] === '}') { depth--; if (!depth) { i++; break; } }
+    }
+    return js.slice(m.index, i);
+  }
+  function load(names) {
+    const body = 'let pfSmSelected=null, pfChrono=null;\n' + names.map(grab).join('\n') +
+      '\nreturn {' + names.join(',') + ', set(sm,ch){pfSmSelected=sm;pfChrono=ch;}};';
+    return new Function(body)();
+  }
+  const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
+                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend']);
+
+  // 2. Scoring: same rules as the server
+  const shots = SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 }));
+  check('score of the real string is 191-5X', f.scoreOf(shots, 'NRA_MR1') === '191-5X', f.scoreOf(shots, 'NRA_MR1'));
+  check('sighters never count', f.scoreOf([{ score: '10', sighter: true }, { score: '9', sighter: false }], 'NRA_MR1') === '9-0X');
+  check('X is worth 6 on F-Class X faces', f.scoreOf([{ score: 'X' }, { score: '5' }], 'IFX600y') === '11-1X');
+  check('V counts 5 and is labelled V', f.scoreOf([{ score: 'V' }, { score: '4' }], 'IF600y') === '9-1V');
+  check('no scores gives null', f.scoreOf([{ score: '' }], 'NRA_MR1') === null);
+
+  // 3. Twist, time and angle helpers
+  const tw = (s) => f.parseTwist(s);
+  check('twist: 1:10 -> 10', tw('1:10') === '10');
+  check('twist: 1-8 -> 8', tw('1-8') === '8');
+  check('twist: "1 in 10" -> 10', tw('1 in 10') === '10');
+  check('twist: 1:7.5 -> 7.5', tw('1:7.5') === '7.5');
+  check('twist: text without a number -> empty', tw('fast') === '' && tw('') === '' && tw(null) === '');
+  check('hh:mm:ss to seconds', f.hmsToSec('10:32:44') === 37964 && f.hmsToSec('nope') === null);
+  const mil = f.mmToAngular(100, 100, 'mil'), moa = f.mmToAngular(100, 100, 'MOA');
+  check('angle unit "mil" (lowercase) really gives mil', Math.abs(mil - 1.094) < 0.002 && Math.abs(f.mmToAngular(100, 100, 'Mil') - mil) < 1e-9, mil);
+  check('angle unit MOA', Math.abs(moa - 3.76) < 0.01, moa);
+  check('sighters keep the S1 shorthand and "Sighter 1" long form',
+    f.shotShort({ label: 'S1', sighter: true }, 0) === 'S1' && f.shotName({ label: 'S1', sighter: true }, 0) === 'Sighter 1');
+  check('record shots read "Shot 3"', f.shotName({ label: '3' }, 2) === 'Shot 3' && f.shotShort({ label: '3' }, 2) === '3');
+  check('an unlabelled sighter still gets an S', f.shotShort({ sighter: true }, 0) === 'S1');
+
+  // 4. Aligning a chronograph file with a ShotMarker string, on the real session
+  const garmin = (n) => ({ shots: GARMIN_TIMES.slice(0, n).map((t, i) => ({ idx: i + 1, time: t, speed_fps: GARMIN_FPS[i], sm_idx: null, unpaired: false })) });
+  const sm = (pick) => ({ shots: pick.map((k, j) => ({ idx: j, label: String(j), v_fps: SM_FPS[k], ts: SM_TS[k] })) });
+  const all22 = Array.from({ length: 22 }, (_, k) => k);
+
+  f.set(sm(all22), garmin(26));
+  let tm = f.pfChronoTimeMatch();
+  check('timing: all 22 ShotMarker shots matched', tm && tm.matched === 22, tm && tm.matched);
+  check('timing: the 4 shots after the string are left out', tm && tm.outside === 4 && tm.insideUnmatched === 0 && [...tm.plan.outside].join() === '22,23,24,25', tm && [...tm.plan.outside]);
+  check('timing: judged strong', tm && tm.strong === true);
+  check('timing pairs shot i with shot i', tm && tm.plan.map.slice(0, 22).every((v, i) => v === i));
+
+  const missing = all22.filter((k) => k !== 8 && k !== 15);               // two shots ShotMarker dropped
+  f.set(sm(missing), garmin(26));
+  tm = f.pfChronoTimeMatch();
+  check('timing copes with two shots missing mid-string', tm && tm.matched === 20 && tm.insideUnmatched === 2 && tm.outside === 4 && tm.strong, tm && [tm.matched, tm.insideUnmatched, tm.outside]);
+
+  f.set({ shots: sm(all22).shots.map((s) => ({ ...s, ts: null })) }, garmin(26));
+  check('no ShotMarker timestamps: no timing result', f.pfChronoTimeMatch() === null);
+
+  f.set(sm(all22), garmin(26));
+  const vel = f.pfChronoBestOffset();
+  check('velocity pattern also finds offset 0 on the real data', vel && vel.offset === 0 && Math.abs(vel.r - 0.52) < 0.03, vel);
+  const rec = f.pfChronoRecommend(vel, f.pfChronoTimeMatch());
+  check('timing is recommended when it is convincing', rec && rec.source === 'timing' && !rec.weak, rec && rec.source);
+
+  const plan = f.pfPlanFromOffset(3);                                   // 26 chronograph shots, 22 ShotMarker shots
+  check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
+
+  return { log, passed, failed, total: passed + failed };
+}
+
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  const fs = require('fs'), path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'static', 'index.html'), 'utf8');
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  if (!scripts.length) { console.error('could not find any inline script in static/index.html'); process.exit(1); }
+  const res = runTests(scripts);
+  res.log.forEach((l) => console.log(l));
+  console.log('\n' + res.passed + '/' + res.total + ' passed');
+  process.exit(res.failed ? 1 : 0);
+}

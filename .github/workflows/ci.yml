@@ -1,0 +1,36 @@
+name: CI
+
+# Kept cheap on purpose (GitHub Free gives 2,000 Actions minutes a month, billed per job rounded up):
+# - runs only for pushes to main that change code, tests or the Dockerfile, so docs-only commits cost nothing
+# - cancels an older run when a newer push arrives
+# - installs nothing: the tests stub Flask and use the Python and Node already on the runner
+# - gives up after 5 minutes
+# Release builds (release.yml) run the same tests before publishing, so a tag can never ship untested code.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app.py'
+      - 'sm_decode.py'
+      - 'static/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Backend tests
+        run: python3 tests/test_backend.py
+
+      - name: Frontend tests
+        run: node tests/frontend.test.js

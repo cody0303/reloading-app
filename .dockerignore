@@ -4,4 +4,6 @@ __pycache__/
 *.sqlite
 .env
 .git/
+.github/
+tests/
 .env
