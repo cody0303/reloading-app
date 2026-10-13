@@ -147,6 +147,9 @@ def init_db():
         ("performance", "muzzle_avg_velocity",    "REAL"),
         ("performance", "muzzle_std_dev",         "REAL"),
         ("performance", "muzzle_extreme_spread",  "REAL"),
+        ("performance", "score_text",             "TEXT"),
+        ("performance", "score_total",            "INTEGER"),
+        ("performance", "use_score",              "INTEGER DEFAULT 1"),
     ]
     for table, col, coldef in migrations:
         try:
@@ -154,8 +157,41 @@ def init_db():
         except Exception:
             pass  # column already exists
 
+    # Sessions saved before the score column existed get theirs worked out from their saved shots
+    for r in conn.execute(
+        "SELECT DISTINCT s.performance_id FROM shotmarker_shots s "
+        "JOIN performance p ON p.id = s.performance_id WHERE p.score_text IS NULL"
+    ).fetchall():
+        _store_score(conn, r["performance_id"])
+
     conn.commit()
     conn.close()
+
+# ── Score ─────────────────────────────────────────────────────
+def compute_score(shots, face_id=""):
+    """Total and special-ring count of the record shots, in ShotMarker's own '191-5X' style.
+    The X/V ring is worth the same as the ring just outside it on every face definition in the app:
+    10 on NRA/ISSF faces, 6 on the F-Class 'IFX' faces, and 5 for a V bull. Checked against the
+    device's own totals on NRA faces only; the F-Class values are inferred, not confirmed.
+    Returns (total, text) or (None, None)."""
+    x_value = 6 if str(face_id or "").startswith("IFX") else 10
+    total = count = n = 0
+    kind = "X"
+    for s in shots:
+        if s.get("sighter"): continue
+        sc = str(s.get("score") or "").strip().upper()
+        if sc == "X":    total += x_value; count += 1; n += 1; kind = "X"
+        elif sc == "V":  total += 5;       count += 1; n += 1; kind = "V"
+        elif sc.isdigit(): total += int(sc); n += 1
+    if not n:
+        return None, None
+    return total, f"{total}-{count}{kind}"
+
+def _store_score(conn, pid):
+    rows = [dict(r) for r in conn.execute(
+        "SELECT score, sighter, face_id FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (pid,)).fetchall()]
+    total, text = compute_score(rows, rows[0]["face_id"] if rows else "")
+    conn.execute("UPDATE performance SET score_total=?, score_text=? WHERE id=?", (total, text, pid))
 
 def get_settings():
     conn = get_db()
@@ -470,13 +506,15 @@ def list_performance():
     conn = get_db()
     if lot:
         rows = conn.execute("""
-            SELECT p.*, f.name as firearm_name FROM performance p
+            SELECT p.*, f.name as firearm_name,
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
             LEFT JOIN firearms f ON p.firearm_id=f.id
             WHERE p.lot_number=? ORDER BY p.id DESC
         """, (lot,)).fetchall()
     else:
         rows = conn.execute("""
-            SELECT p.*, f.name as firearm_name FROM performance p
+            SELECT p.*, f.name as firearm_name,
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
             LEFT JOIN firearms f ON p.firearm_id=f.id
             ORDER BY p.id DESC
         """).fetchall()
@@ -497,7 +535,8 @@ def create_performance():
     )
     conn.commit()
     row = conn.execute("""
-        SELECT p.*, f.name as firearm_name FROM performance p
+        SELECT p.*, f.name as firearm_name,
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
         LEFT JOIN firearms f ON p.firearm_id=f.id WHERE p.id=?
     """, (cur.lastrowid,)).fetchone()
     conn.close()
@@ -519,15 +558,25 @@ def update_performance(pid):
     # Group sizes are stored in MOA/mil, so changing the distance or unit leaves them stale.
     # Re-derive them from the saved shots, unless the group values were edited by hand here.
     if old:
-        changed = (not _same_num(old["distance"], vals["distance"])
-                   or (old["distance_unit"] or "yd") != (vals["distance_unit"] or "yd")
-                   or (old["group_unit"] or "MOA") != (vals["group_unit"] or "MOA"))
+        distance_changed = (not _same_num(old["distance"], vals["distance"])
+                            or (old["distance_unit"] or "yd") != (vals["distance_unit"] or "yd"))
+        changed = distance_changed or (old["group_unit"] or "MOA") != (vals["group_unit"] or "MOA")
         group_edited = any(not _same_num(old[k], vals[k]) for k in ("group_size", "group_x", "group_y"))
+        if distance_changed:
+            _sync_shot_geometry(conn, pid)   # the saved shots carry their own copy of the distance
         if changed and not group_edited:
             _refresh_group_angles(conn, pid)
+    # Target face lives on the saved shots. Positions (mm) are measured, so they are kept as they are.
+    face = str(data.get("face_id") or "").strip()
+    if face:
+        conn.execute("UPDATE shotmarker_shots SET face_id=? WHERE performance_id=?", (face, pid))
+    if "use_score" in data:
+        conn.execute("UPDATE performance SET use_score=? WHERE id=?",
+                     (1 if data["use_score"] in (True, 1, "1", "true") else 0, pid))
     conn.commit()
     row = conn.execute("""
-        SELECT p.*, f.name as firearm_name FROM performance p
+        SELECT p.*, f.name as firearm_name,
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
         LEFT JOIN firearms f ON p.firearm_id=f.id WHERE p.id=?
     """, (pid,)).fetchone()
     conn.close()
@@ -536,6 +585,21 @@ def update_performance(pid):
 def _same_num(a, b):
     try: return float(a or 0) == float(b or 0)
     except (TypeError, ValueError): return a == b
+
+def _sync_shot_geometry(conn, pid):
+    """Copy a session's current distance onto its saved shots and redo their per-shot MOA."""
+    perf = conn.execute("SELECT distance, distance_unit FROM performance WHERE id=?", (pid,)).fetchone()
+    d = _to_float(perf["distance"]) if perf else 0.0
+    if not d:
+        return
+    unit = "m" if perf["distance_unit"] == "m" else "y"
+    per_moa = 0.29088822 * d * (0.9144 if unit == "y" else 1)   # mm per MOA at this distance
+    for r in conn.execute("SELECT id, x_mm, y_mm FROM shotmarker_shots WHERE performance_id=?", (pid,)).fetchall():
+        conn.execute(
+            "UPDATE shotmarker_shots SET distance=?, dist_unit=?, x_moa=?, y_moa=? WHERE id=?",
+            (d, unit,
+             round(r["x_mm"] / per_moa, 3) if r["x_mm"] is not None else None,
+             round(r["y_mm"] / per_moa, 3) if r["y_mm"] is not None else None, r["id"]))
 
 def _refresh_group_angles(conn, pid):
     shots = [dict(r) for r in conn.execute(
@@ -911,6 +975,10 @@ def save_perf_shots(pid):
              face_id, distance, dist_unit, bullet]
         )
 
+    # A fresh import means the score is the device's original again, so it's trusted
+    _store_score(conn, pid)
+    conn.execute("UPDATE performance SET use_score=1 WHERE id=?", (pid,))
+
     # Auto-update performance stats from selected record shots
     stats = compute_stats(shots)
     sets, vals = [], []
@@ -947,6 +1015,7 @@ def save_perf_shots(pid):
 def delete_perf_shots(pid):
     conn = get_db()
     conn.execute("DELETE FROM shotmarker_shots WHERE performance_id=?", (pid,))
+    conn.execute("UPDATE performance SET score_text=NULL, score_total=NULL WHERE id=?", (pid,))
     conn.commit()
     conn.close()
     return jsonify({"ok": True})

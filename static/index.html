@@ -874,10 +874,14 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
         <label class="flabel">Position</label>
       </div>
       <div class="f-section">Distance</div>
-      <div class="field"><input class="finput" type="number" step=".1" id="pf-dist" placeholder=" "><label class="flabel">Distance</label></div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-dist" placeholder=" " oninput="pfScoreGuard()"><label class="flabel">Distance</label></div>
       <div class="field">
-        <select class="fselect" id="pf-dist-unit"><option value="yd">yards</option><option value="m">meters</option></select>
+        <select class="fselect" id="pf-dist-unit" onchange="pfScoreGuard()"><option value="yd">yards</option><option value="m">meters</option></select>
         <label class="flabel">Unit</label>
+      </div>
+      <div class="field f-full">
+        <select class="fselect" id="pf-face" onchange="pfScoreGuard()" disabled></select>
+        <label class="flabel">Target face (saved ShotMarker shots)</label>
       </div>
       <div class="f-section">Muzzle velocity (fps) — auto-filled from a chronograph CSV; or enter manually</div>
       <div class="field"><input class="finput" type="number" step=".1" id="pf-mvel" placeholder=" "><label class="flabel">Muzzle Average</label></div>
@@ -895,6 +899,14 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       </div>
       <div class="field"><input class="finput" type="number" step=".001" id="pf-group-x" placeholder=" "><label class="flabel">Group X (horizontal)</label></div>
       <div class="field"><input class="finput" type="number" step=".001" id="pf-group-y" placeholder=" "><label class="flabel">Group Y (vertical)</label></div>
+      <div class="f-section">ShotMarker score</div>
+      <div class="f-full" style="display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;color:var(--os)">
+          <input type="checkbox" id="pf-use-score" checked style="width:16px;height:16px;accent-color:var(--p)">
+          Use score <b id="pf-score-text"></b>
+        </label>
+        <span id="pf-score-note" style="font-size:11px;color:var(--osv)"></span>
+      </div>
       <div class="field f-full"><textarea class="ftextarea" id="pf-notes" placeholder="Notes…"></textarea></div>
     </div>
 
@@ -1885,11 +1897,17 @@ const PERF_COLS=[
   {key:'group_x',label:'Grp X',num:true,cell:r=>r.group_x?r.group_x+' '+r.group_unit:'—'},
   {key:'group_y',label:'Grp Y',num:true,cell:r=>r.group_y?r.group_y+' '+r.group_unit:'—'},
   {key:'num_shots',label:'Shots',num:true,cell:r=>r.num_shots||'—'},
+  {key:'score_total',label:'Score',num:true,cell:r=>{
+    if(!r.score_text) return '—';
+    return r.use_score===0
+      ?`<span style="opacity:.4" title="Not used: the distance or target face was changed after the shots were imported">${escHtml(r.score_text)}</span>`
+      :escHtml(r.score_text);
+  }},
   {key:'position',label:'Position',cell:r=>r.position?POSITION_ABBR[r.position]||r.position:'—'},
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
 ];
 const PERF_COL_DEFAULTS={
-  wide:['lot_number','firearm_name','date','distance','muzzle_avg_velocity','muzzle_std_dev','muzzle_extreme_spread','avg_velocity','std_dev','extreme_spread','group_size','group_x','group_y','num_shots','position'],
+  wide:['lot_number','firearm_name','date','distance','muzzle_avg_velocity','muzzle_std_dev','muzzle_extreme_spread','avg_velocity','std_dev','extreme_spread','group_size','group_x','group_y','num_shots','score_total','position'],
   narrow:['lot_number','firearm_name','distance','muzzle_avg_velocity','avg_velocity','std_dev','group_size'],
 };
 let lastPerfRows=[];
@@ -2140,8 +2158,7 @@ function pfInitShotCanvas(){
   pfCanvasCtrl=initInteractiveCanvas(
     'pf-sm-canvas',
     ()=>{ const s=pfSmSelected; if(!s) return [];
-          return s.shots.map((sh,i)=>({...sh, face_id:s.face_id,
-            _color:pfShotSelected.has(i)?null:'rgba(160,160,160,0.35)'})); },
+          return s.shots.map((sh,i)=>({...sh, face_id:s.face_id, _dim:!pfShotSelected.has(i)})); },
     ()=>pfSmSelected?.bullet_d_mm||7.82,
     null
   );
@@ -2481,10 +2498,47 @@ function pfChronoRefresh(){
   }
 }
 
+// ── ShotMarker score / target face: stay in step with distance and face edits ──
+let pfOrig=null;   // distance, unit, face and use-score as they were when an existing session was opened
+
+function pfFillFaceOptions(selected){
+  const sel=document.getElementById('pf-face');
+  const ids=Object.keys(SM_FACES);
+  if(selected&&!ids.includes(selected)) ids.unshift(selected);
+  sel.innerHTML='<option value="">—</option>'+ids.map(k=>`<option value="${escHtml(k)}">${escHtml((SM_FACES[k]&&SM_FACES[k].name)||k)}</option>`).join('');
+  sel.value=selected||'';
+}
+
+// row = the session being edited, or null when adding one
+function pfSetScoreUI(row){
+  const hasShots=!!(row&&row.face_id), hasScore=!!(row&&row.score_text);
+  pfFillFaceOptions(row?row.face_id||'':'');
+  document.getElementById('pf-face').disabled=!hasShots;
+  const cb=document.getElementById('pf-use-score');
+  cb.checked=row?row.use_score!==0:true;
+  cb.disabled=!hasScore;
+  document.getElementById('pf-score-text').textContent=hasScore?`(${row.score_text})`:'';
+  document.getElementById('pf-score-note').textContent=hasScore
+    ?'Unticks itself if the distance or target face is changed afterwards, since the device scored the shots on the original.'
+    :(row?'No ShotMarker score is saved for this session.':'');
+  pfOrig=row?{dist:row.distance,unit:row.distance_unit||'yd',face:row.face_id||'',use:row.use_score!==0}:null;
+}
+
+function pfScoreGuard(){
+  if(!perfEditId||!pfOrig) return;
+  const cb=document.getElementById('pf-use-score');
+  if(cb.disabled) return;
+  const same=parseFloat(document.getElementById('pf-dist').value||0)===parseFloat(pfOrig.dist||0)
+    &&document.getElementById('pf-dist-unit').value===pfOrig.unit
+    &&document.getElementById('pf-face').value===pfOrig.face;
+  cb.checked=same?pfOrig.use:false;
+}
+
 function openPerfModal(prefillLot){
   perfEditId=null;
   pfResetChrono();
   pfResetSmUI();
+  pfSetScoreUI(null);
   document.getElementById('perf-modal-title').textContent='Add Performance Session';
   document.getElementById('pf-save-text').textContent='Save Session';
   ['pf-lot','pf-date','pf-shots','pf-dist','pf-vel','pf-sd','pf-es','pf-group','pf-group-x','pf-group-y','pf-notes'].forEach(id=>document.getElementById(id).value='');
@@ -2519,6 +2573,7 @@ function editPerformance(id){
   document.getElementById('pf-position').value=row.position||'';
   document.getElementById('pf-notes').value=row.notes||'';
   pfSetMuzzleFields(row.muzzle_avg_velocity,row.muzzle_std_dev,row.muzzle_extreme_spread);
+  pfSetScoreUI(row);
   api('GET',`/api/performance/${id}/chrono`).then(shots=>{
     if(perfEditId!==id) return;
     pfChronoLinked=shots.length; pfChronoRefresh();
@@ -2545,6 +2600,8 @@ async function savePerformance(){
     muzzle_avg_velocity:document.getElementById('pf-mvel').value,
     muzzle_std_dev:document.getElementById('pf-msd').value,
     muzzle_extreme_spread:document.getElementById('pf-mes').value,
+    use_score:document.getElementById('pf-use-score').checked,
+    face_id:document.getElementById('pf-face').disabled?'':document.getElementById('pf-face').value,
     notes:document.getElementById('pf-notes').value,
   };
   document.getElementById('pf-save-btn').disabled=true;
@@ -3338,7 +3395,7 @@ function smBuildChips(){
     chip.id=`smc-${i}`;
     chip.style.cssText='flex-shrink:0;padding:4px 10px;border-radius:16px;border:1.5px solid var(--olv);background:var(--sf);font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap';
     chip.textContent=shotShort(s,i)+(s.score?' '+s.score:'');
-    chip.onclick=()=>smToggleShot(i);
+    chip.onclick=()=>{ smToggleShot(i); smUpdateSelCount(); smResizeAndDraw(); };
     smUpdateChip(chip, i);
     el.appendChild(chip);
   });
@@ -3428,7 +3485,12 @@ function velSpans(vs,labels){
 function smUpdateStats(barId, shots, opts={}){
   const bar=document.getElementById(barId); if(!bar) return;
   const withVel=shots.filter(s=>s.v_fps);
-  if(!shots.length){bar.innerHTML='';return;}
+  if(!shots.length){
+    bar.innerHTML=(opts.layered&&opts.score)
+      ?`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%"><span><b>0</b> shots</span><span>Score: <b>${opts.score.all}</b></span><span>Checked: <b>—</b></span></div>`
+      :'';
+    return;
+  }
 
   // Velocity stats (from shots that have velocity)
   let html=`<span><b>${shots.length}</b> shots</span>`;
@@ -3467,6 +3529,10 @@ function smUpdateStats(barId, shots, opts={}){
   if(groupYAng!=null) html+=`<span>Grp Y: <b>${groupYAng} ${grpUnit}</b></span>`;
   if(!opts.layered){ bar.innerHTML=html; return; }
 
+  if(opts.score){
+    html+=`<span>Score: <b>${opts.score.all}</b></span>`;
+    if(opts.score.checked!==opts.score.all) html+=`<span>Checked: <b>${opts.score.checked||'—'}</b></span>`;
+  }
   const line=inner=>`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%">${inner}</div>`;
   const label=t=>`<span style="min-width:52px;color:var(--p);font-weight:500">${t}</span>`;
   let rows=line(html);
@@ -3639,11 +3705,11 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi
 
   const bR=Math.max((bulletD||7.82)*scale/2,3);
 
-  // Sighters first, then record
-  const order=shots.map((s,i)=>({s,i}));
-  [...order.filter(o=>o.s.sighter), ...order.filter(o=>!o.s.sighter)].forEach(({s,i})=>{
+  // Sighters first, then record. s._dim marks a shot as unticked for callers that do their own
+  // selection (the importer); others pass a `selected` set.
+  const order=shots.map((s,i)=>({s,i,dim:!!s._dim||!!(selected&&!selected.has(s._i!==undefined?s._i:i))}));
+  [...order.filter(o=>o.s.sighter), ...order.filter(o=>!o.s.sighter)].forEach(({s,i,dim:dimmed})=>{
     if(s.x_mm==null) return;
-    const dimmed=selected&&!selected.has(s._i!==undefined?s._i:i);
     const [px,py]=tc(s.x_mm,s.y_mm);
     ctx.save();
     if(dimmed) ctx.globalAlpha=0.2;
@@ -3881,7 +3947,7 @@ function smvBuildShotList(){
     cb.onchange=()=>{smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();};
     const lbl=document.createElement('label');
     lbl.style.cssText='font-size:12px;cursor:pointer;line-height:1.2;white-space:nowrap';
-    lbl.innerHTML=`<b>${escHtml(shotName(s,i))}</b>${s.score?' · '+escHtml(String(s.score)):''}`;
+    lbl.innerHTML=`<b>${escHtml(shotName(s,i))}</b>${smvScoreText(s)?' · '+escHtml(smvScoreText(s)):''}`;
     item.onclick=e=>{if(e.target!==cb){cb.checked=!cb.checked;smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();}};
     const info=document.createElement('button');
     info.className='icon-btn'; info.title='Shot details';
@@ -3905,10 +3971,28 @@ function smvCheckType(type){
 }
 // Muzzle shots follow the target selection: unticking a target shot also drops the chronograph shot paired
 // with it. Chronograph shots with no pairing, or paired to a shot that was not saved, always count.
+// Record-shot score in ShotMarker's '191-5X' style (same rules as the server's compute_score).
+function scoreOf(shots,faceId){
+  const xv=String(faceId||'').startsWith('IFX')?6:10;
+  let total=0,count=0,n=0,kind='X';
+  shots.forEach(s=>{
+    if(s.sighter) return;
+    const sc=String(s.score||'').trim().toUpperCase();
+    if(sc==='X'){ total+=xv; count++; n++; kind='X'; }
+    else if(sc==='V'){ total+=5; count++; n++; kind='V'; }
+    else if(/^\d+$/.test(sc)){ total+=parseInt(sc,10); n++; }
+  });
+  return n?`${total}-${count}${kind}`:null;
+}
+
 function smvUpdateStats(){
   const pos=new Map(smvShots.map((s,i)=>[s.idx,i]));
   const muzzle=smvChrono.filter(c=>c.sm_idx==null||!pos.has(c.sm_idx)||smvSelected.has(pos.get(c.sm_idx))).map(c=>c.speed_fps);
-  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)), {layered:true, muzzle:muzzle.length?muzzle:null});
+  const p=allPerf.find(x=>x.id===smvPerfId);
+  const face=smvSession&&smvSession.face_id;
+  const all=(p&&p.use_score===0)?null:scoreOf(smvShots,face);   // hidden when the score isn't trusted
+  const score=all?{all, checked:scoreOf(smvShots.filter((_,i)=>smvSelected.has(i)),face)}:null;
+  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)), {layered:true, muzzle:muzzle.length?muzzle:null, score});
 }
 
 // ── Hover tooltip (desktop only) ──────────────────────────────
@@ -3936,6 +4020,11 @@ function smPick(canvasId,clientX,clientY,radiusPx){
 }
 
 // ── Saved-shot details (viewer): hover tooltip on desktop, pinned card everywhere ──
+// Per-shot scores are hidden when the session's score is switched off (distance/face changed after import)
+function smvScoreText(s){
+  const p=allPerf.find(x=>x.id===smvPerfId);
+  return (p&&p.use_score===0)||!s.score?'':String(s.score);
+}
 function smvLen(mm){ return smvSession&&smvSession.dist_unit==='m'?mm.toFixed(1)+' mm':(mm/25.4).toFixed(2)+' in'; }
 function smvAng(mm){
   const d=smvSession?.distance||0, yd=smvSession?.dist_unit==='m'?d*1.09361:d;
@@ -3951,7 +4040,7 @@ function smvShotInfo(i){
   const gap=(prev&&s.ts&&prev.ts)?Math.round((s.ts-prev.ts)/1000):null;
   const hasXY=s.x_mm!=null&&s.y_mm!=null;
   return {
-    title:shotName(s,i)+(s.score?` · ${s.score}`:''),
+    title:shotName(s,i)+(smvScoreText(s)?` · ${smvScoreText(s)}`:''),
     offset:hasXY?`${smvLen(Math.abs(s.x_mm))} ${s.x_mm>=0?'right':'left'}, ${smvLen(Math.abs(s.y_mm))} ${s.y_mm>=0?'high':'low'}`:null,
     radius:hasXY?(()=>{ const r=Math.hypot(s.x_mm,s.y_mm); return `${smvLen(r)} (${smvAng(r)})`; })():null,
     target:s.v_fps?fmtVel(s.v_fps):null,
