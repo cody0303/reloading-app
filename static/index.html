@@ -1096,6 +1096,15 @@ function escHtml(s){
   return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
 
+// Shot naming. ShotMarker already labels sighters S1, S2…; that label is the shorthand everywhere.
+// i = the shot's 0-based position, used only when it has no label.
+function shotShort(s,i){
+  const lbl=String(s.label||(i+1));
+  return s.sighter?(/^s/i.test(lbl)?lbl:'S'+lbl):lbl;
+}
+// Full form, used wherever a record shot reads "Shot 3": sighters read "Sighter 1".
+function shotName(s,i){ return s.sighter?'Sighter '+shotShort(s,i).replace(/^s/i,''):'Shot '+shotShort(s,i); }
+
 function colPickerTh(table){
   const th=document.createElement('th');
   th.style.cssText='width:110px;text-align:right;cursor:default';
@@ -2053,15 +2062,8 @@ function pfBuildShotList(){
     chk.onclick=e=>{e.stopPropagation();pfHandleShotClick(i,e);};
     const lbl=document.createElement('span');
     lbl.style.cssText='flex:1;font-size:13px;font-weight:500';
-    lbl.textContent=s.label||(s.sighter?'S':String(i+1));
-    if(s.sighter){
-      const tag=document.createElement('span');
-      tag.textContent='sighter';
-      tag.style.cssText='font-size:10px;background:var(--sfv);border:1px solid var(--olv);border-radius:4px;padding:1px 5px;color:var(--osv)';
-      row.append(chk,lbl,tag);
-    } else {
-      row.append(chk,lbl);
-    }
+    lbl.textContent=shotShort(s,i);
+    row.append(chk,lbl);
     if(s.score){
       const sc=document.createElement('span');
       sc.textContent=s.score;
@@ -2431,7 +2433,7 @@ function pfChronoSelAll(on){
 function pfChronoBuildList(){
   const wrap=document.getElementById('pf-ch-list'); wrap.innerHTML='';
   if(!pfChrono) return;
-  const smLabel=idx=>{ const s=pfSmSelected?.shots.find(x=>x.idx===idx); return s?(s.label||idx+1)+(s.sighter?' (sighter)':''):idx+1; };
+  const smLabel=idx=>{ const s=pfSmSelected?.shots.find(x=>x.idx===idx); return s?shotShort(s,idx):idx+1; };
   pfChrono.shots.forEach((s,i)=>{
     const row=document.createElement('label');
     row.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;border-radius:4px;cursor:'+(s.unpaired?'default;opacity:.45':'pointer');
@@ -3100,9 +3102,20 @@ Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
         <div style="position:absolute;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px">
           <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(1.25)"><span class="mi material-icons-round" style="font-size:18px">zoom_in</span></button>
           <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(0.8)"><span class="mi material-icons-round" style="font-size:18px">zoom_out</span></button>
+          <button class="icon-btn" title="Zoom to group" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoomToGroup()"><span class="mi material-icons-round" style="font-size:18px">center_focus_strong</span></button>
           <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvResetView()"><span class="mi material-icons-round" style="font-size:18px">fit_screen</span></button>
         </div>
         <div id="smv-tip" style="position:absolute;background:var(--sf);border:0.5px solid var(--olv);border-radius:var(--rsm);padding:6px 10px;font-size:12px;line-height:1.6;pointer-events:none;display:none;white-space:nowrap;box-shadow:var(--s1);z-index:10"></div>
+      </div>
+      <div id="smv-card" style="display:none;border-top:1px solid var(--olv);background:var(--sf);padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:4px">
+          <b id="smv-card-title" style="font-size:13px;flex:1;color:var(--os)"></b>
+          <button class="icon-btn" title="Previous shot" style="width:32px;height:32px" onclick="smvStep(-1)"><span class="mi material-icons-round" style="font-size:20px">chevron_left</span></button>
+          <button class="icon-btn" title="Next shot" style="width:32px;height:32px" onclick="smvStep(1)"><span class="mi material-icons-round" style="font-size:20px">chevron_right</span></button>
+          <button class="icon-btn" title="Close" style="width:32px;height:32px" onclick="smvUnpin()"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
+        </div>
+        <div id="smv-card-near" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:11px;color:var(--osv)"></div>
+        <div id="smv-card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;margin-top:8px;font-size:12px"></div>
       </div>
       <div id="smv-stats-bar" style="display:flex;gap:12px;padding:8px 14px;border-top:1px solid var(--olv);font-size:12px;color:var(--osv);flex-wrap:wrap;background:var(--sfv)"></div>
       <div id="smv-shot-list" style="padding:10px 14px;border-top:1px solid var(--olv)">
@@ -3116,7 +3129,7 @@ Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
             <button class="btn btn-tonal btn-sm" style="font-size:11px;padding:2px 8px" onclick="smvCheckAll(false)">None</button>
           </div>
         </div>
-        <div id="smv-shot-items" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:2px"></div>
+        <div id="smv-shot-items" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:0 4px"></div>
       </div>
       <div id="smv-load-bar" style="display:none;gap:12px;padding:6px 14px;border-top:1px solid var(--olv);font-size:11px;color:var(--osv);flex-wrap:wrap;background:var(--surface);align-items:center"></div>
     </div>
@@ -3221,7 +3234,15 @@ let smPerfId=null, smSession=null, smShots=[], smSelected=new Set(), smLastClick
 let smZoomLevel=1, smPanX=0, smPanY=0;
 let smPinchDist=null, smPinchZoomStart=null;
 
-let smvPerfId=null, smvShots=[], smvSession=null, smvSelected=new Set();
+let smvPerfId=null, smvShots=[], smvSession=null, smvSelected=new Set(), smvChrono=[];
+let smvView=()=>({zl:1,panX:0,panY:0}), smvFit=()=>{}, smvPinned=-1, smvHoverIdx=-1, smvNear=[];
+
+// Zoom to the ticked shots (or every shot if none are ticked)
+function smvZoomToGroup(){
+  const withXY=smvShots.filter(s=>s.x_mm!=null&&s.y_mm!=null);
+  const picked=withXY.filter(s=>smvSelected.has(smvShots.indexOf(s)));
+  smvFit((picked.length?picked:withXY).map(s=>[s.x_mm,s.y_mm]));
+}
 let smvZoomLevel=1, smvPanX=0, smvPanY=0;
 let smvPinchDist=null, smvPinchZoomStart=null;
 
@@ -3293,18 +3314,11 @@ function smBuildShotList(){
     chk.onclick=ev=>{ev.stopPropagation();smHandleRowClick(i,ev);};
     const lbl=document.createElement('span');
     lbl.style.cssText='flex:1;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-    lbl.textContent=s.label||(s.sighter?'S':'?');
+    lbl.textContent=shotShort(s,i);
     const sc=document.createElement('span');
     sc.style.cssText='font-size:12px;color:var(--osv);width:36px;text-align:right;flex-shrink:0;font-family:"Roboto Mono",monospace';
     sc.textContent=s.score||'';
-    if(s.sighter){
-      const tag=document.createElement('span');
-      tag.textContent='S';
-      tag.style.cssText='font-size:10px;background:var(--sfv);border:1px solid var(--olv);border-radius:4px;padding:1px 4px;color:var(--osv);flex-shrink:0';
-      row.append(chk,lbl,tag,sc);
-    } else {
-      row.append(chk,lbl,sc);
-    }
+    row.append(chk,lbl,sc);
     el.appendChild(row);
   });
   smUpdateSelCount();
@@ -3317,7 +3331,7 @@ function smBuildChips(){
     const chip=document.createElement('button');
     chip.id=`smc-${i}`;
     chip.style.cssText='flex-shrink:0;padding:4px 10px;border-radius:16px;border:1.5px solid var(--olv);background:var(--sf);font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap';
-    chip.textContent=(s.label||(s.sighter?'S':'?'))+(s.score?' '+s.score:'');
+    chip.textContent=shotShort(s,i)+(s.score?' '+s.score:'');
     chip.onclick=()=>smToggleShot(i);
     smUpdateChip(chip, i);
     el.appendChild(chip);
@@ -3392,25 +3406,30 @@ function mmToAngular(mm, distYd, unit){
   if(mm==null||!distYd) return null;
   const distMm=distYd*914.4;
   const rad=Math.atan2(mm,distMm);
-  if(unit==='Mil') return +(rad*1000).toFixed(3);
+  if(String(unit).toLowerCase()==='mil') return +(rad*1000).toFixed(3);
   return +(rad*(180/Math.PI)*60).toFixed(3);
 }
 
-function smUpdateStats(barId, shots){
+// opts.muzzle: array of muzzle speeds (fps), or null. When opts.layered is set the bar shows shots + group
+// on one line, then a Muzzle row and a Target row; otherwise everything is on a single line.
+function velSpans(vs,labels){
+  const avg=vs.reduce((a,v)=>a+v,0)/vs.length;
+  const sd=Math.sqrt(vs.map(v=>(v-avg)**2).reduce((a,v)=>a+v,0)/vs.length);
+  const es=Math.max(...vs)-Math.min(...vs);
+  return `<span>${labels[0]} <b>${fmtVel(avg)}</b></span><span>${labels[1]} <b>${fmtVel(sd)}</b></span><span>${labels[2]} <b>${fmtVel(es)}</b></span>`;
+}
+
+function smUpdateStats(barId, shots, opts={}){
   const bar=document.getElementById(barId); if(!bar) return;
   const withVel=shots.filter(s=>s.v_fps);
   if(!shots.length){bar.innerHTML='';return;}
 
   // Velocity stats (from shots that have velocity)
   let html=`<span><b>${shots.length}</b> shots</span>`;
+  let targetHtml='';
   if(withVel.length){
-    const vs=withVel.map(s=>s.v_fps);
-    const avg=vs.reduce((a,v)=>a+v,0)/vs.length;
-    const sd=Math.sqrt(vs.map(v=>(v-avg)**2).reduce((a,v)=>a+v,0)/vs.length);
-    const velES=Math.max(...vs)-Math.min(...vs);
-    html+=`<span>Avg: <b>${fmtVel(avg)}</b></span>`
-        +`<span>SD: <b>${fmtVel(sd)}</b></span>`
-        +`<span>Vel ES: <b>${fmtVel(velES)}</b></span>`;
+    targetHtml=velSpans(withVel.map(s=>s.v_fps),opts.layered?['Avg','SD','ES']:['Avg:','SD:','Vel ES:']);
+    if(!opts.layered) html+=targetHtml;
   }
 
   // Group size stats from coordinates
@@ -3440,7 +3459,14 @@ function smUpdateStats(barId, shots){
   if(groupAng!=null)  html+=`<span>Group: <b>${groupAng} ${grpUnit}</b></span>`;
   if(groupXAng!=null) html+=`<span>Grp X: <b>${groupXAng} ${grpUnit}</b></span>`;
   if(groupYAng!=null) html+=`<span>Grp Y: <b>${groupYAng} ${grpUnit}</b></span>`;
-  bar.innerHTML=html;
+  if(!opts.layered){ bar.innerHTML=html; return; }
+
+  const line=inner=>`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%">${inner}</div>`;
+  const label=t=>`<span style="min-width:52px;color:var(--p);font-weight:500">${t}</span>`;
+  let rows=line(html);
+  if(opts.muzzle&&opts.muzzle.length) rows+=line(label('Muzzle')+velSpans(opts.muzzle,['Avg','SD','ES']));
+  if(targetHtml) rows+=line(label('Target')+targetHtml);
+  bar.innerHTML=rows;
 }
 
 async function smSaveShots(){
@@ -3470,6 +3496,8 @@ async function openShotViewer(perfId){
   try{
     const shots=await api('GET',`/api/performance/${perfId}/shots`);
     if(!shots.length){ smvOpenUpload(perfId); setLoading(false); return; }
+    smvChrono=await api('GET',`/api/performance/${perfId}/chrono`).catch(()=>[]);
+    smvPinned=-1; smvHoverIdx=-1; smvNear=[]; smvRenderCard();
     smvShots=shots;
     smvSession={face_id:shots[0].face_id||'NRA_MR1',distance:shots[0].distance||600,dist_unit:shots[0].dist_unit||'y',bullet_d_mm:shots[0].bullet_d_mm||7.82};
     smvSelected=new Set(shots.map((_,i)=>i).filter(i=>!shots[i].sighter));
@@ -3526,7 +3554,8 @@ function smMoaMm(dist,unit){
   return dist*(unit==='y'?0.9144:1)*1000/3438;
 }
 
-function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId){
+// hi: optional Set of shot indices to ring (hovered / pinned shot)
+function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi){
   const C=document.getElementById(canvasId); if(!C) return;
   const wrap=C.parentElement;
   const W=wrap.clientWidth, H=wrap.clientHeight;
@@ -3605,9 +3634,10 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId){
   const bR=Math.max((bulletD||7.82)*scale/2,3);
 
   // Sighters first, then record
-  [...shots.filter(s=>s.sighter), ...shots.filter(s=>!s.sighter)].forEach((s,_,arr)=>{
+  const order=shots.map((s,i)=>({s,i}));
+  [...order.filter(o=>o.s.sighter), ...order.filter(o=>!o.s.sighter)].forEach(({s,i})=>{
     if(s.x_mm==null) return;
-    const dimmed=selected&&!selected.has(s._i!==undefined?s._i:arr.indexOf(s));
+    const dimmed=selected&&!selected.has(s._i!==undefined?s._i:i);
     const [px,py]=tc(s.x_mm,s.y_mm);
     ctx.save();
     if(dimmed) ctx.globalAlpha=0.2;
@@ -3621,6 +3651,12 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId){
       ctx.beginPath(); ctx.arc(px,py,bR,0,Math.PI*2); ctx.fill();
       ctx.strokeStyle=shotCol?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.9)'; ctx.lineWidth=Math.max(0.8,1.1); ctx.stroke();
       if(!shotCol){ ctx.fillStyle='rgba(0,0,0,0.95)'; ctx.beginPath(); ctx.arc(px,py,bR*0.55,0,Math.PI*2); ctx.fill(); }
+    }
+    if(hi&&hi.has(i)){
+      ctx.globalAlpha=1;
+      ctx.beginPath(); ctx.arc(px,py,bR+4,0,Math.PI*2);
+      ctx.strokeStyle='#fff'; ctx.lineWidth=4.5; ctx.stroke();
+      ctx.strokeStyle='#1565C0'; ctx.lineWidth=2; ctx.stroke();
     }
     if(zl>0.6){
       const fs=Math.max(8,Math.min(13,9*Math.sqrt(zl)));
@@ -3711,47 +3747,116 @@ function smResetView(){smZoomLevel=1;smPanX=0;smPanY=0;if(smSession)smResizeAndD
 
 // ── Generic interactive canvas ─────────────────────────────────
 // Used by both the shot viewer and comparison canvases
-function initInteractiveCanvas(cvId, getShots, getBulletD, onHover){
+// opts (all optional): getSelected() -> Set of shot indices to keep bright, getFace() -> face id,
+// getHi() -> Set of shot indices to ring, onTap({clientX,clientY,pointerType}) for a click or tap
+// that didn't drag. Calling this again for the same canvas replaces the earlier handlers.
+function initInteractiveCanvas(cvId, getShots, getBulletD, onHover, opts={}){
   const C=document.getElementById(cvId); if(!C) return;
+  if(C._icTeardown) C._icTeardown();
   let zl=1, panX=0, panY=0, dragStart=null, pinchDist=null, pinchZoomStart=1, touchStart=null, touchPanStart=null;
+  let downPt=null, tapOk=false, touchT0=0;
 
-  function draw(){ smRender(cvId, getShots(), null, zl, panX, panY, getBulletD()); }
+  function draw(){
+    smRender(cvId, getShots(), opts.getSelected?opts.getSelected():null, zl, panX, panY, getBulletD(),
+             opts.getFace?opts.getFace():undefined, opts.getHi?opts.getHi():null);
+  }
   function zoom(f){ zl=Math.max(0.25,Math.min(30,zl*f)); draw(); }
   function reset(){ zl=1; panX=0; panY=0; draw(); }
+  // Frame a set of [x_mm, y_mm] points: centred, with a quarter of the group's size as margin on each side.
+  function fit(pts){
+    if(!pts.length) return;
+    const W=C.parentElement.clientWidth, H=C.parentElement.clientHeight;
+    if(!W||!H) return;
+    const first=getShots()[0];
+    const R=smGetRings((opts.getFace&&opts.getFace())||(first&&first.face_id)||'NRA_MR1');
+    const base=Math.min(W,H)*0.5/(R[R.length-1].r+40);
+    const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+    const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+    const bd=getBulletD();
+    const w=Math.max(x1-x0,20)+bd, h=Math.max(y1-y0,20)+bd;   // a lone shot still gets a sensible window
+    zl=Math.max(0.25,Math.min(30,Math.min(W/(w*1.5),H/(h*1.5))/base));
+    const scale=base*zl;
+    panX=-((x0+x1)/2)*scale; panY=((y0+y1)/2)*scale;
+    draw();
+  }
 
   C.onwheel=e=>{ e.preventDefault(); zoom(e.deltaY<0?1.12:0.89); };
-  C.onpointerdown=e=>{ if(e.pointerType==='touch') return; dragStart={x:e.clientX-panX,y:e.clientY-panY}; C.setPointerCapture(e.pointerId); C.style.cursor='grabbing'; };
+  C.onpointerdown=e=>{
+    if(e.pointerType==='touch') return;
+    dragStart={x:e.clientX-panX,y:e.clientY-panY}; downPt={x:e.clientX,y:e.clientY,t:Date.now()};
+    C.setPointerCapture(e.pointerId); C.style.cursor='grabbing';
+  };
   C.onpointermove=e=>{
     if(dragStart&&e.pointerType!=='touch'){ panX=e.clientX-dragStart.x; panY=e.clientY-dragStart.y; draw(); }
     else if(onHover&&e.pointerType!=='touch'){ onHover(e,cvId,zl,panX,panY); }
   };
-  C.onpointerup=()=>{ dragStart=null; C.style.cursor='grab'; };
-  C.addEventListener('touchstart',e=>{
-    if(e.touches.length===1){ touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}; touchPanStart={x:panX,y:panY}; pinchDist=null; }
-    else if(e.touches.length===2){ pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); pinchZoomStart=zl; }
+  C.onpointerup=e=>{
+    dragStart=null; C.style.cursor='grab';
+    if(opts.onTap&&downPt&&e.pointerType!=='touch'&&Math.hypot(e.clientX-downPt.x,e.clientY-downPt.y)<5&&Date.now()-downPt.t<600)
+      opts.onTap({clientX:e.clientX,clientY:e.clientY,pointerType:'mouse'});
+    downPt=null;
+  };
+  const onTouchStart=e=>{
+    if(e.touches.length===1){
+      touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}; touchPanStart={x:panX,y:panY}; pinchDist=null;
+      tapOk=true; touchT0=Date.now();
+    }else if(e.touches.length===2){
+      pinchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); pinchZoomStart=zl;
+      tapOk=false;
+    }
     e.preventDefault();
-  },{passive:false});
-  C.addEventListener('touchmove',e=>{
-    if(e.touches.length===1&&touchStart){ panX=touchPanStart.x+(e.touches[0].clientX-touchStart.x); panY=touchPanStart.y+(e.touches[0].clientY-touchStart.y); draw(); }
-    else if(e.touches.length===2&&pinchDist){ const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); zl=Math.max(0.25,Math.min(30,pinchZoomStart*(d/pinchDist))); draw(); }
+  };
+  const onTouchMove=e=>{
+    if(e.touches.length===1&&touchStart){
+      if(Math.hypot(e.touches[0].clientX-touchStart.x,e.touches[0].clientY-touchStart.y)>8) tapOk=false;
+      panX=touchPanStart.x+(e.touches[0].clientX-touchStart.x); panY=touchPanStart.y+(e.touches[0].clientY-touchStart.y); draw();
+    }else if(e.touches.length===2&&pinchDist){
+      tapOk=false;
+      const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+      zl=Math.max(0.25,Math.min(30,pinchZoomStart*(d/pinchDist))); draw();
+    }
     e.preventDefault();
-  },{passive:false});
-  C.addEventListener('touchend',()=>{ touchStart=null; pinchDist=null; });
-  new ResizeObserver(()=>draw()).observe(C.parentElement);
+  };
+  const onTouchEnd=e=>{
+    if(opts.onTap&&tapOk&&touchStart&&e.touches.length===0&&Date.now()-touchT0<400&&e.changedTouches[0])
+      opts.onTap({clientX:e.changedTouches[0].clientX,clientY:e.changedTouches[0].clientY,pointerType:'touch'});
+    tapOk=false; touchStart=null; pinchDist=null;
+  };
+  C.addEventListener('touchstart',onTouchStart,{passive:false});
+  C.addEventListener('touchmove',onTouchMove,{passive:false});
+  C.addEventListener('touchend',onTouchEnd);
+  const ro=new ResizeObserver(()=>draw()); ro.observe(C.parentElement);
+  C._icTeardown=()=>{
+    C.removeEventListener('touchstart',onTouchStart); C.removeEventListener('touchmove',onTouchMove);
+    C.removeEventListener('touchend',onTouchEnd); ro.disconnect(); C._icTeardown=null;
+  };
   draw();
-  return {draw, zoom, reset};
+  return {draw, zoom, reset, fit, view:()=>({zl,panX,panY})};
+}
+
+function smvHiSet(){
+  const s=new Set();
+  if(smvHoverIdx>=0) s.add(smvHoverIdx);
+  if(smvPinned>=0) s.add(smvPinned);
+  return s;
 }
 
 function smvInitCanvas(){
-  const ctrl=initInteractiveCanvas('smv-canvas',()=>smvShots,()=>smvSession?.bullet_d_mm||7.82,smvHover);
+  const ctrl=initInteractiveCanvas('smv-canvas',()=>smvShots,()=>smvSession?.bullet_d_mm||7.82,smvHover,
+    {getSelected:()=>smvSelected,getFace:()=>smvSession?.face_id,getHi:smvHiSet,onTap:smvTap});
   smvResizeAndDraw=ctrl.draw;
   smvZoom=f=>ctrl.zoom(f);
   smvResetView=()=>ctrl.reset();
-  document.getElementById('smv-canvas').onmouseleave=()=>document.getElementById('smv-tip').style.display='none';
+  smvView=ctrl.view;
+  smvFit=ctrl.fit;
+  document.getElementById('smv-canvas').onmouseleave=()=>{
+    document.getElementById('smv-tip').style.display='none';
+    if(smvHoverIdx>=0){ smvHoverIdx=-1; smvResizeAndDraw(); }
+  };
 }
 
 function smvResizeAndDraw(){
-  smRender('smv-canvas',smvShots,smvSelected,smvZoomLevel,smvPanX,smvPanY,smvSession?.bullet_d_mm,smvSession?.face_id);
+  smRender('smv-canvas',smvShots,smvSelected,smvZoomLevel,smvPanX,smvPanY,smvSession?.bullet_d_mm,smvSession?.face_id,smvHiSet());
 }
 function smvZoom(f){smvZoomLevel=Math.max(0.25,Math.min(30,smvZoomLevel*f));smvResizeAndDraw();}
 function smvResetView(){smvZoomLevel=1;smvPanX=0;smvPanY=0;smvResizeAndDraw();}
@@ -3761,20 +3866,23 @@ function smvBuildShotList(){
   wrap.innerHTML='';
   smvShots.forEach((s,i)=>{
     const item=document.createElement('div');
-    item.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;user-select:none';
-    item.onmouseenter=()=>{item.style.background='var(--sfv)'};
-    item.onmouseleave=()=>{item.style.background=''};
+    item.style.cssText='display:flex;align-items:center;gap:5px;padding:1px 4px;border-radius:4px;cursor:pointer;user-select:none';
+    item.onmouseenter=()=>{item.style.background='var(--sfv)'; smvHoverIdx=i; smvResizeAndDraw();};
+    item.onmouseleave=()=>{item.style.background=''; smvHoverIdx=-1; smvResizeAndDraw();};
     const cb=document.createElement('input');
     cb.type='checkbox'; cb.checked=smvSelected.has(i);
     cb.style.cssText='width:14px;height:14px;cursor:pointer;flex-shrink:0;accent-color:var(--p)';
     cb.onchange=()=>{smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();};
     const lbl=document.createElement('label');
-    lbl.style.cssText='font-size:12px;cursor:pointer;line-height:1.3';
-    const tag=s.sighter?'Sighter':'Shot';
-    const vel=s.v_fps?` · ${fmtVel(s.v_fps)}`:'';
-    lbl.innerHTML=`<b>${tag} ${s.label||i+1}</b>${s.score?' '+s.score:''}${vel}`;
+    lbl.style.cssText='font-size:12px;cursor:pointer;line-height:1.2;white-space:nowrap';
+    lbl.innerHTML=`<b>${escHtml(shotName(s,i))}</b>${s.score?' · '+escHtml(String(s.score)):''}`;
     item.onclick=e=>{if(e.target!==cb){cb.checked=!cb.checked;smvSelected[cb.checked?'add':'delete'](i);smvUpdateStats();smvResizeAndDraw();}};
-    item.appendChild(cb); item.appendChild(lbl);
+    const info=document.createElement('button');
+    info.className='icon-btn'; info.title='Shot details';
+    info.style.cssText='width:20px;height:20px;margin-left:auto;flex-shrink:0;color:var(--osv);opacity:.55';
+    info.innerHTML='<span class="mi material-icons-round" style="font-size:14px">info</span>';
+    info.onclick=e=>{ e.stopPropagation(); smvPin(i); };
+    item.appendChild(cb); item.appendChild(lbl); item.appendChild(info);
     wrap.appendChild(item);
   });
 }
@@ -3789,45 +3897,135 @@ function smvCheckType(type){
   });
   smvBuildShotList(); smvUpdateStats(); smvResizeAndDraw();
 }
+// Muzzle shots follow the target selection: unticking a target shot also drops the chronograph shot paired
+// with it. Chronograph shots with no pairing, or paired to a shot that was not saved, always count.
 function smvUpdateStats(){
-  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)));
+  const pos=new Map(smvShots.map((s,i)=>[s.idx,i]));
+  const muzzle=smvChrono.filter(c=>c.sm_idx==null||!pos.has(c.sm_idx)||smvSelected.has(pos.get(c.sm_idx))).map(c=>c.speed_fps);
+  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)), {layered:true, muzzle:muzzle.length?muzzle:null});
 }
 
 // ── Hover tooltip (desktop only) ──────────────────────────────
-function smHover(e,canvasId,tipId){
+// Shots within radiusPx (screen pixels) of a pointer position, nearest first. Uses the canvas's
+// real zoom and pan, so it stays accurate after the view is moved.
+function smPick(canvasId,clientX,clientY,radiusPx){
+  const isV=canvasId==='smv-canvas';
+  const shots=isV?smvShots:smShots, sess=isV?smvSession:smSession;
   const C=document.getElementById(canvasId);
-  const tip=document.getElementById(tipId);
-  const shots=canvasId==='sm-canvas'?smShots:smvShots;
-  const sess=canvasId==='sm-canvas'?smSession:smvSession;
-  if(!shots||!shots.length){tip.style.display='none';return;}
-  const wrap=C.parentElement, W=wrap.clientWidth, H=wrap.clientHeight;
-  const zl=canvasId==='sm-canvas'?smZoomLevel:smvZoomLevel;
-  const px=canvasId==='sm-canvas'?smPanX:smvPanX;
-  const py=canvasId==='sm-canvas'?smPanY:smvPanY;
-  const RINGS=smGetRings(faceId||(shots&&shots[0]&&shots[0].face_id)||'NRA_MR1');
-  const baseScale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40);
-  const scale=baseScale*zl;
-  const cx=W/2+px, cy=H/2+py;
+  if(!C||!shots||!shots.length) return [];
+  const v=isV?smvView():{zl:smZoomLevel,panX:smPanX,panY:smPanY};
+  const W=C.parentElement.clientWidth, H=C.parentElement.clientHeight;
+  const RINGS=smGetRings((sess&&sess.face_id)||shots[0].face_id||'NRA_MR1');
+  const scale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40)*v.zl;
+  const cx=W/2+v.panX, cy=H/2+v.panY;
   const rect=C.getBoundingClientRect();
-  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-  const smm_x=(mx-cx)/scale, smm_y=-(my-cy)/scale;
-  let hit=null, best=Infinity;
+  const mx=clientX-rect.left, my=clientY-rect.top;
+  const hits=[];
   shots.forEach((s,i)=>{
     if(s.x_mm==null) return;
-    const d=Math.hypot(s.x_mm-smm_x,s.y_mm-smm_y);
-    if(d<25&&d<best){best=d;hit={...s,_i:i};}
+    const d=Math.hypot(cx+s.x_mm*scale-mx, cy-s.y_mm*scale-my);
+    if(d<=radiusPx) hits.push({i,d});
   });
-  if(hit){
+  return hits.sort((a,b)=>a.d-b.d);
+}
+
+// ── Saved-shot details (viewer): hover tooltip on desktop, pinned card everywhere ──
+function smvLen(mm){ return smvSession&&smvSession.dist_unit==='m'?mm.toFixed(1)+' mm':(mm/25.4).toFixed(2)+' in'; }
+function smvAng(mm){
+  const d=smvSession?.distance||0, yd=smvSession?.dist_unit==='m'?d*1.09361:d;
+  const a=mmToAngular(Math.abs(mm),yd,perfUnits().angle);
+  return a==null?'':`${a} ${perfUnits().angle}`;
+}
+function smvFmtGap(sec){ return sec<120?`${sec} s`:`${Math.floor(sec/60)} m ${sec%60} s`; }
+
+function smvShotInfo(i){
+  const s=smvShots[i];
+  const c=smvChrono.find(x=>x.sm_idx===s.idx)||null;
+  const prev=i>0?smvShots[i-1]:null;
+  const gap=(prev&&s.ts&&prev.ts)?Math.round((s.ts-prev.ts)/1000):null;
+  const hasXY=s.x_mm!=null&&s.y_mm!=null;
+  return {
+    title:shotName(s,i)+(s.score?` · ${s.score}`:''),
+    offset:hasXY?`${smvLen(Math.abs(s.x_mm))} ${s.x_mm>=0?'right':'left'}, ${smvLen(Math.abs(s.y_mm))} ${s.y_mm>=0?'high':'low'}`:null,
+    radius:hasXY?(()=>{ const r=Math.hypot(s.x_mm,s.y_mm); return `${smvLen(r)} (${smvAng(r)})`; })():null,
+    target:s.v_fps?fmtVel(s.v_fps):null,
+    muzzle:c?fmtVel(c.speed_fps):null,
+    loss:(c&&s.v_fps)?fmtVel(c.speed_fps-s.v_fps):null,
+    time:c&&c.time?c.time:null,
+    gap:gap!=null?smvFmtGap(gap):null,
+    temp:s.temp_c!=null?`${s.temp_c} °C`:null,
+    flags:[c&&c.cold_bore?'Cold bore':'', c&&c.clean_bore?'Clean bore':''].filter(Boolean),
+    note:c&&c.notes?c.notes:null,
+  };
+}
+
+function smvTipHtml(i){
+  const d=smvShotInfo(i);
+  return `<b>${escHtml(d.title)}</b>`
+    +(d.offset?`<br>${d.offset}`:'')
+    +(d.radius?`<br>r: ${d.radius}`:'')
+    +(d.target?`<br>Target: ${d.target}`:'')
+    +(d.muzzle?`<br>Muzzle: ${d.muzzle}`:'');
+}
+
+function smvRenderCard(){
+  const card=document.getElementById('smv-card');
+  if(smvPinned<0||!smvShots[smvPinned]){ card.style.display='none'; return; }
+  const d=smvShotInfo(smvPinned);
+  document.getElementById('smv-card-title').textContent=d.title+(d.flags.length?' · '+d.flags.join(', '):'');
+  const near=document.getElementById('smv-card-near');
+  if(smvNear.length>1){
+    near.style.display='flex';
+    near.innerHTML=`<span>${smvNearMore?'Several shots here (zoom in to separate), nearest:':smvNear.length+' shots here:'}</span>`+smvNear.map(j=>{
+      const s=smvShots[j];
+      return `<button class="fchip${j===smvPinned?' on':''}" onclick="smvPin(${j},smvNear)">${escHtml(shotShort(s,j))}</button>`;
+    }).join('');
+  }else near.style.display='none';
+  const cell=(label,val)=>val?`<div><div style="font-size:11px;color:var(--osv)">${label}</div><div style="color:var(--os)">${val}</div></div>`:'';
+  document.getElementById('smv-card-body').innerHTML=
+    cell('Position',d.offset)+cell('From centre',d.radius)
+    +cell('Target velocity',d.target)+cell('Muzzle velocity',d.muzzle)+cell('Velocity loss',d.loss)
+    +cell('Time (chronograph clock)',d.time)+cell('Since previous shot',d.gap)
+    +cell('Temperature',d.temp)+cell('Note',d.note?escHtml(d.note):null);
+  card.style.display='block';
+}
+
+let smvNearMore=false;   // more shots under the pointer than the chooser shows
+function smvPin(i,near){ smvPinned=i; smvNear=near||[]; smvRenderCard(); smvResizeAndDraw(); }
+function smvUnpin(){ smvPinned=-1; smvNear=[]; smvNearMore=false; smvRenderCard(); smvResizeAndDraw(); }
+function smvStep(d){
+  const n=smvShots.length; if(!n) return;
+  smvPin(((smvPinned<0?(d>0?-1:0):smvPinned)+d+n)%n);
+}
+function smvTap(p){
+  const hits=smPick('smv-canvas',p.clientX,p.clientY,p.pointerType==='touch'?22:14);
+  if(!hits.length){ smvUnpin(); return; }
+  smvNearMore=hits.length>6;
+  smvPin(hits[0].i,hits.length>1?hits.slice(0,6).map(h=>h.i):[]);
+}
+
+function smHover(e,canvasId,tipId){
+  const tip=document.getElementById(tipId);
+  const isV=canvasId==='smv-canvas';
+  const shots=isV?smvShots:smShots;
+  if(!shots||!shots.length){tip.style.display='none';return;}
+  const hit=smPick(canvasId,e.clientX,e.clientY,14)[0];
+  if(isV&&(hit?hit.i:-1)!==smvHoverIdx){ smvHoverIdx=hit?hit.i:-1; smvResizeAndDraw(); }
+  if(!hit){ tip.style.display='none'; return; }
+  const C=document.getElementById(canvasId), W=C.parentElement.clientWidth;
+  const rect=C.getBoundingClientRect(), mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  if(isV) tip.innerHTML=smvTipHtml(hit.i);
+  else{
+    const s=shots[hit.i], sess=smSession;
     const moaMm=smMoaMm(sess?.distance||600,sess?.dist_unit||'y');
-    const r=Math.hypot(hit.x_mm,hit.y_mm).toFixed(1);
-    tip.style.display='block';
-    tip.innerHTML=`<b>${hit.sighter?'Sighter ':'Shot '}${hit.label||''}</b> ${hit.score||''}<br>`+
-      `x: ${hit.x_mm?.toFixed(1)} mm &nbsp;y: ${hit.y_mm?.toFixed(1)} mm<br>`+
-      `r: ${r} mm &nbsp;(${(hit.x_mm/moaMm).toFixed(2)} / ${(hit.y_mm/moaMm).toFixed(2)} MOA)`+
-      (hit.v_fps?`<br>v: ${hit.v_fps} fps`:'');
-    tip.style.left=Math.min(mx+14,W-185)+'px';
-    tip.style.top=Math.max(my-65,4)+'px';
-  } else tip.style.display='none';
+    tip.innerHTML=`<b>${escHtml(shotName(s,hit.i))}</b> ${s.score||''}<br>`+
+      `x: ${s.x_mm?.toFixed(1)} mm &nbsp;y: ${s.y_mm?.toFixed(1)} mm<br>`+
+      `r: ${Math.hypot(s.x_mm,s.y_mm).toFixed(1)} mm &nbsp;(${(s.x_mm/moaMm).toFixed(2)} / ${(s.y_mm/moaMm).toFixed(2)} MOA)`+
+      (s.v_fps?`<br>v: ${s.v_fps} fps`:'');
+  }
+  tip.style.display='block';
+  tip.style.left=Math.min(mx+14,W-215)+'px';
+  tip.style.top=Math.max(my-65,4)+'px';
 }
 function smvHover(e){smHover(e,'smv-canvas','smv-tip');}
 
