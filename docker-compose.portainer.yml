@@ -1,6 +1,6 @@
 services:
   reloading-app:
-    image: ghcr.io/cody0303/reloading-app:v65
+    image: ghcr.io/cody0303/reloading-app:v66
     container_name: reloading-app
     ports:
       - "5002:5000"
