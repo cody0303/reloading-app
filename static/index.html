@@ -147,6 +147,10 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 .flabel{position:absolute;left:12px;top:8px;font-size:11px;font-weight:500;color:var(--osv);letter-spacing:.3px;pointer-events:none;transition:color .2s}
 .finput:focus~.flabel,.fselect:focus~.flabel{color:var(--p)}
 .finput::placeholder{color:transparent}
+.field-affix .pre,.field-affix .suf{position:absolute;bottom:8px;font-size:14px;line-height:1.2;color:var(--osv);pointer-events:none}
+.field-affix .pre{left:12px}
+.field-affix .suf{right:12px}
+.field-affix .finput{padding-left:30px;padding-right:44px}
 .ftextarea{width:100%;min-height:70px;background:var(--sfv);border:1px solid var(--ol);border-radius:var(--rsm);padding:24px 12px 8px;font-family:'Roboto',sans-serif;font-size:14px;color:var(--os);outline:none;resize:vertical;transition:border-color .2s}
 [data-theme=dark] .ftextarea{background:var(--sf2)}
 .ftextarea:focus{border-color:var(--p)}
@@ -759,10 +763,15 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     <div class="field"><input class="finput" id="fa-manufacturer" placeholder=" "><label class="flabel">Manufacturer</label></div>
     <div class="field"><input class="finput" type="number" step=".1" id="fa-barrel" placeholder=" "><label class="flabel">Barrel Length</label></div>
     <div class="field">
-      <select class="fselect" id="fa-barrel-unit"><option value="in">inches</option><option value="mm">mm</option></select>
+      <select class="fselect" id="fa-barrel-unit" onchange="syncTwistUnit()"><option value="in">inches</option><option value="mm">mm</option></select>
       <label class="flabel">Barrel Unit</label>
     </div>
-    <div class="field f-full"><input class="finput" id="fa-twist" placeholder=" e.g. 1:10"><label class="flabel">Twist Rate</label></div>
+    <div class="field f-full field-affix">
+      <span class="pre">1:</span>
+      <input class="finput" type="number" step="any" min="0" id="fa-twist" placeholder=" ">
+      <span class="suf" id="fa-twist-unit">in</span>
+      <label class="flabel">Twist Rate (one turn per…)</label>
+    </div>
     <div class="field f-full"><textarea class="ftextarea" id="fa-notes" placeholder="Notes…"></textarea></div>
   </div>
   <div class="mfooter">
@@ -1577,7 +1586,7 @@ function renderFirearms(rows){
       <td><strong>${row.name}</strong></td>
       <td>${row.caliber||'—'}</td>
       <td class="c-num">${row.barrel_length?row.barrel_length+' '+row.barrel_length_unit:'—'}</td>
-      <td>${row.twist_rate||'—'}</td>
+      <td>${fmtTwist(row)}</td>
       <td class="col-hide">${row.manufacturer||'—'}</td>
       <td class="c-act">
         <button class="icon-btn" title="Edit" onclick="editFirearm(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
@@ -1587,12 +1596,28 @@ function renderFirearms(rows){
   });
 }
 
+// Twist is stored as "1:x"; its unit is the firearm's barrel length unit.
+function parseTwist(s){
+  if(!s) return '';
+  const str=String(s);
+  const m=str.match(/1\s*(?:[:\-\/]|in\b)\s*(\d+(?:\.\d+)?)/i)||str.match(/(\d+(?:\.\d+)?)\s*(?:in|mm|inch|inches)?\s*$/i);
+  return m?m[1]:'';
+}
+function fmtTwist(row){
+  if(!row.twist_rate) return '—';
+  return /^1:\d/.test(row.twist_rate)?`${row.twist_rate} ${row.barrel_length_unit||'in'}`:row.twist_rate;
+}
+function syncTwistUnit(){
+  document.getElementById('fa-twist-unit').textContent=document.getElementById('fa-barrel-unit').value;
+}
+
 function openFirearmModal(){
   firearmEditId=null;
   document.getElementById('firearm-modal-title').textContent='Add Firearm';
   document.getElementById('fa-save-text').textContent='Add Firearm';
   ['fa-name','fa-caliber','fa-manufacturer','fa-barrel','fa-twist','fa-notes'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fa-barrel-unit').value='in';
+  syncTwistUnit();
   openModal('firearm-overlay');
 }
 
@@ -1606,7 +1631,10 @@ function editFirearm(id){
   document.getElementById('fa-manufacturer').value=row.manufacturer||'';
   document.getElementById('fa-barrel').value=row.barrel_length||'';
   document.getElementById('fa-barrel-unit').value=row.barrel_length_unit||'in';
-  document.getElementById('fa-twist').value=row.twist_rate||'';
+  syncTwistUnit();
+  const twist=parseTwist(row.twist_rate);
+  document.getElementById('fa-twist').value=twist;
+  if(row.twist_rate&&!twist) snack(`Couldn't read the saved twist "${row.twist_rate}". Please re-enter it.`,'err');
   document.getElementById('fa-notes').value=row.notes||'';
   openModal('firearm-overlay');
 }
@@ -1618,9 +1646,14 @@ async function saveFirearm(){
     manufacturer:document.getElementById('fa-manufacturer').value,
     barrel_length:document.getElementById('fa-barrel').value,
     barrel_length_unit:document.getElementById('fa-barrel-unit').value,
-    twist_rate:document.getElementById('fa-twist').value,
+    twist_rate:'',
     notes:document.getElementById('fa-notes').value,
   };
+  const twistVal=parseFloat(document.getElementById('fa-twist').value);
+  if(document.getElementById('fa-twist').value!==''){
+    if(!(twistVal>0)){snack('Twist rate must be greater than 0','err');return;}
+    data.twist_rate=`1:${twistVal}`;
+  }
   if(!data.name){snack('Name is required','err');return;}
   document.getElementById('fa-save-btn').disabled=true;
   try{

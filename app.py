@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request, send_from_directory, Response
-import sqlite3, os, csv, io, json, datetime, random, string, secrets, tempfile
+import sqlite3, os, csv, io, json, datetime, random, string, secrets, tempfile, re
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import inch
 from reportlab.pdfgen import canvas as rl_canvas
@@ -400,11 +400,20 @@ def list_firearms():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
+TWIST_RE = re.compile(r"^1:\d+(\.\d+)?$")
+
+def _bad_twist(vals):
+    """Twist rate is stored as '1:x'; the unit is the firearm's barrel length unit."""
+    t = vals["twist_rate"]
+    return t is not None and not TWIST_RE.match(str(t))
+
 @app.route("/api/firearms", methods=["POST"])
 def create_firearm():
     data = request.json or {}
     cols = ["name","caliber","manufacturer","barrel_length","barrel_length_unit","twist_rate","notes"]
     vals = {c: data.get(c) or None for c in cols}
+    if _bad_twist(vals):
+        return jsonify({"error": "twist_rate must look like 1:10"}), 400
     conn = get_db()
     cur = conn.execute(
         f"INSERT INTO firearms ({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})",
@@ -420,6 +429,8 @@ def update_firearm(fid):
     data = request.json or {}
     cols = ["name","caliber","manufacturer","barrel_length","barrel_length_unit","twist_rate","notes"]
     vals = {c: data.get(c) or None for c in cols}
+    if _bad_twist(vals):
+        return jsonify({"error": "twist_rate must look like 1:10"}), 400
     sets = ", ".join(f"{c}=?" for c in vals)
     conn = get_db()
     conn.execute(f"UPDATE firearms SET {sets} WHERE id=?", [*vals.values(), fid])
