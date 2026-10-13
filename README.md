@@ -1,191 +1,124 @@
-# Reloading Database — Setup & Deployment Guide
+# Reloading Log
 
-## Project Structure
+A self-hosted reloading log: load recipes, component inventory, firearms, and range performance, with
+ShotMarker target data and Garmin Xero chronograph files linked to each session. Flask + SQLite on the
+back, a single-page vanilla JS front end, no build step.
+
+- **Loads** – recipes with lot numbers, searchable and sortable; prints a 50×30 mm PDF label for a Niimbot printer.
+- **Inventory** – bullets, brass, primers and powder; building a load can draw stock down, with a prompt if you are short.
+- **Firearms** – barrel length, twist (entered as `1:x`), caliber, notes.
+- **Performance** – range sessions per lot: velocity, group, score, position, notes.
+  - Import a **ShotMarker** export (`.tar`) to get shot positions, scores, and a shot viewer with zoom, hover details, and stats for checked shots.
+  - Import a **Garmin Xero** CSV for muzzle velocity. Shots are paired with ShotMarker shots by timing (falling back to velocity pattern), and you are asked when the shot counts or timing disagree.
+  - Sessions with Garmin data but no ShotMarker string open a speed scatter plot (average and ±1 SD) in place of the target.
+- **Settings** – theme, units, label contents, backup, and the running version.
+
+Column pickers (per table, separate for wide and narrow screens), inventory filter chips, and the current tab (kept in the URL hash) are remembered by the browser or the database.
+
+## Project structure
 
 ```
 reloading-app/
-├── app.py               # Flask backend + REST API
-├── requirements.txt     # Python dependencies
-├── Dockerfile           # Container image definition
-├── docker-compose.yml   # Orchestration (recommended)
-├── .dockerignore
-└── static/
-    └── index.html       # Frontend (served by Flask)
+├── app.py                         # Flask backend + REST API + label rendering
+├── sm_decode.py                   # ShotMarker export decoder (tar → shots, scores, timestamps)
+├── requirements.txt               # flask, gunicorn, reportlab
+├── Dockerfile                     # python:3.12-slim image; APP_VERSION build arg
+├── docker-compose.yml             # Full stack: app + nginx + Cloudflare Tunnel (built from source)
+├── docker-compose.portainer.yml   # App only, pulls a pinned image from GHCR (used by Portainer)
+├── nginx.conf
+├── static/
+│   └── index.html                 # The whole front end
+├── tests/
+│   ├── test_backend.py            # API and decoder checks, no packages needed (Flask is stubbed)
+│   ├── frontend.test.js           # Pure-function checks lifted out of index.html, Node only
+│   └── fixtures/                  # Real ShotMarker export and Garmin CSV used by the tests
+└── .github/workflows/
+    ├── ci.yml                     # Tests on pushes to main that touch code
+    └── release.yml                # Tag push: tests, tarball release, image to GHCR, deploy pin
 ```
 
----
+## Run locally
 
-## Option 1: Run Locally with Python
-
-### Prerequisites
-- Python 3.10+
-
-### Steps
+Python 3.10+ (the image uses 3.12).
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Run the app (database auto-created as reloading.db in current directory)
-python app.py
+python app.py            # creates reloading.db in the current directory
 ```
 
-Open http://localhost:5000 in your browser.
+Open http://localhost:5000. Set `DB_PATH=/path/to/mydata.db` to keep the database elsewhere.
 
-To change the database path:
-```bash
-DB_PATH=/path/to/mydata.db python app.py
-```
-
----
-
-## Option 2: Docker (Recommended)
-
-### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac)
-  or Docker Engine + Docker Compose (Linux)
-
-### Quick Start with Docker Compose
+## Tests
 
 ```bash
-# 1. Build and start the container
-docker compose up -d
-
-# 2. Open your browser
-open http://localhost:5000    # Mac
-start http://localhost:5000   # Windows
+python3 tests/test_backend.py
+node tests/frontend.test.js
 ```
 
-The `-d` flag runs it in the background. The database is stored in a named
-Docker volume (`reloading-data`) and persists across container restarts and rebuilds.
+Neither needs any packages. GitHub Actions runs both on pushes to `main` that change code (docs-only pushes cost nothing) and again on every release tag before anything is published.
 
-### Common Commands
+## Deploying
+
+Releases are driven by version tags (`v57`, `v58`, …); there is no tarball to upload by hand.
+
+1. Commit and push to `main`; CI runs the tests.
+2. Push a tag `vNN`. `release.yml` then:
+   - runs the tests (a failure publishes nothing),
+   - attaches `reloading-app_NN.tar` and its SHA-256 to a GitHub release,
+   - builds the image and pushes `ghcr.io/cody0303/reloading-app:vNN` (and `:latest`) with the version baked in (shown in Settings),
+   - commits the new image pin to the `deploy` branch, which holds only `docker-compose.portainer.yml`.
+3. Portainer (Git stack on the `deploy` branch, polling) sees the new commit and redeploys the pinned image within a couple of minutes.
+
+Notes:
+- Images are always pinned to a version, never `:latest`; Portainer CE cannot force a re-pull.
+- The repository and the GHCR package are private, so Portainer needs a GitHub token for cloning and a `ghcr.io` registry login (a token with `read:packages`).
+- The database lives in a Docker volume (`reloading-app-data` on the Portainer host, `reloading-data` in the full compose file). Redeploying keeps it. **Never run `docker compose down -v`**: `-v` deletes the volume and every record in it.
+
+### Building from source instead
 
 ```bash
-# View logs
-docker compose logs -f
-
-# Stop the app
-docker compose down
-
-# Stop and wipe ALL data (destructive!)
-docker compose down -v
-
-# Rebuild after code changes
-docker compose up -d --build
+docker compose up -d --build     # app + nginx + cloudflared (needs TUNNEL_TOKEN in the environment)
 ```
 
----
+Without a tunnel, use the Portainer compose file or add a `ports:` mapping to the app service.
 
-## Option 3: Docker Without Compose
+## Backup & restore
+
+**Online backup:** `GET /api/backup` returns a consistent copy of the SQLite database, even while the app is running. The endpoint has no authentication, so keep it on the LAN and never route it through the public tunnel.
 
 ```bash
-# Build the image
-docker build -t reloading-app .
-
-# Create a named volume for the database
-docker volume create reloading-data
-
-# Run the container
-docker run -d \
-  --name reloading-app \
-  -p 5000:5000 \
-  -v reloading-data:/data \
-  --restart unless-stopped \
-  reloading-app
-
-# Open http://localhost:5000
+curl -o reloading_backup.db http://<docker-host>:5002/api/backup
 ```
 
----
+A nightly pull of that URL (for example from Home Assistant, whose Google Drive backup add-on then carries it off-site) is an easy automated setup. The database is small: roughly 3 KB per 22-shot session.
 
-## Hosting on a Server (LAN or VPS)
-
-### Run on a home server / NAS
-
-Same Docker steps as above. Access from other devices on your network using the
-server's local IP address instead of `localhost`:
-
-```
-http://192.168.1.XX:5000
-```
-
-Find your server's IP with `ip addr show` (Linux) or `ipconfig` (Windows).
-
-### Change the port
-
-Edit `docker-compose.yml` and change `"5000:5000"` to e.g. `"8080:5000"` to
-expose it on port 8080 on the host.
-
-### Expose to the internet (optional)
-
-If you want access outside your home network:
-
-1. **Reverse proxy with nginx** — put nginx in front and handle HTTPS via Let's Encrypt.
-2. **Cloudflare Tunnel** — zero-config, no port forwarding needed:
-   ```bash
-   cloudflared tunnel --url http://localhost:5000
-   ```
-3. **Tailscale** — secure private network between your devices; no public exposure.
-
-> **Security note**: This app has no authentication. Do not expose it directly
-> to the public internet without adding a login layer.
-
----
-
-## Backup & Restore
-
-### Backup the database
+**Restore** by stopping the app, then copying the file over the volume's `reloading.db`:
 
 ```bash
-# Copy the SQLite file out of the volume
-docker run --rm \
-  -v reloading-data:/data \
-  -v $(pwd):/backup \
-  alpine cp /data/reloading.db /backup/reloading_backup.db
+docker run --rm -v reloading-app-data:/data -v "$(pwd)":/backup alpine cp /backup/reloading_backup.db /data/reloading.db
 ```
 
-Or use the Export CSV button in the app for a portable text backup.
+The Export CSV button in the app gives a portable text copy of the loads table only.
 
-### Restore from backup
+## Security
 
-```bash
-docker run --rm \
-  -v reloading-data:/data \
-  -v $(pwd):/backup \
-  alpine cp /backup/reloading_backup.db /data/reloading.db
-```
+There is no login. Keep the app on your LAN or behind something that authenticates (Cloudflare Access, Tailscale). All data from the database is HTML-escaped before display.
 
----
+## REST API
 
-## REST API Reference
+All endpoints return JSON unless noted.
 
-All endpoints return JSON.
+| Area        | Endpoints |
+|-------------|-----------|
+| Loads       | `GET/POST /api/loads`, `PUT/DELETE /api/loads/{id}`, `GET /api/loads/new-lot`, `GET /api/loads/{id}/label` (PDF) |
+| Inventory   | `GET/POST /api/inventory`, `PUT/DELETE /api/inventory/{id}`, `POST /api/inventory/{id}/add`, `POST /api/inventory/check`, `GET /api/inventory/names/{category}` |
+| Firearms    | `GET/POST /api/firearms`, `PUT/DELETE /api/firearms/{id}` |
+| Performance | `GET/POST /api/performance`, `PUT/DELETE /api/performance/{id}` |
+| ShotMarker  | `POST /api/shotmarker/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/shots` |
+| Chronograph | `POST /api/chrono/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/chrono` |
+| Other       | `GET /api/stats`, `GET /api/distinct/{column}`, `GET/POST /api/settings`, `GET /api/version`, `GET /api/backup`, `GET /api/export`, `POST /api/import` |
 
-| Method | Path                    | Description                    |
-|--------|-------------------------|--------------------------------|
-| GET    | /api/loads              | List/search records            |
-| POST   | /api/loads              | Create a new record            |
-| PUT    | /api/loads/{id}         | Update a record                |
-| DELETE | /api/loads/{id}         | Delete a record                |
-| GET    | /api/stats              | Total loads & cartridge count  |
-| GET    | /api/distinct/{column}  | Unique values for autocomplete |
-| GET    | /api/export             | Download all data as CSV       |
-| POST   | /api/import             | Upload a CSV file              |
-
-### Query parameters for GET /api/loads
-
-| Param          | Description                          |
-|----------------|--------------------------------------|
-| search         | Full-text search across all fields   |
-| cartridge      | Filter by cartridge (partial match)  |
-| powder_type    | Filter by powder type                |
-| bullet_weight  | Filter by bullet weight              |
-| annealed       | Filter by annealed (Yes / No)        |
-| sort           | Column to sort by (default: id)      |
-| dir            | ASC or DESC (default: DESC)          |
-
-### Example
+`GET /api/loads` accepts `search`, `cartridge`, `powder_type`, `bullet_weight`, `annealed`, `sort` and `dir` (`ASC`/`DESC`).
 
 ```bash
 curl "http://localhost:5000/api/loads?cartridge=308&sort=powder_weight&dir=ASC"

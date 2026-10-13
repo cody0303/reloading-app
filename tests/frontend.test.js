@@ -47,7 +47,24 @@ function runTests(scripts) {
     return new Function(body)();
   }
   const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
-                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend']);
+                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats']);
+
+  // Garmin-only viewer maths: population SD like the Garmin's own summary
+  const cs = f.chronoStats([2, 4, 4, 4, 5, 5, 7, 9]);
+  check('chronograph stats: avg 5, population SD 2, ES 7', cs.avg === 5 && cs.sd === 2 && cs.es === 7, cs);
+  const cs22 = f.chronoStats(GARMIN_FPS.slice(0, 22));
+  check('chronograph stats on the real string are sane', cs22.avg > 2600 && cs22.avg < 2620 && cs22.sd > 10 && cs22.sd < 20, cs22);
+
+  // Escaping: text from the database must never reach innerHTML raw
+  check('escHtml neutralises tags, quotes and ampersands',
+        f.escHtml('<b onclick="x()">Tom\'s & co</b>') === '&lt;b onclick=&quot;x()&quot;&gt;Tom&#39;s &amp; co&lt;/b&gt;', f.escHtml('<b>'));
+  // (table and c.key are fixed names from the page itself, not database text)
+  const handlerRe = /on(click|change)="[^"]*'\$\{(?!table\}|c\.key\})[^}]*\}/;
+  check('no inline handler splices data inside quotes (use data-* instead)', !handlerRe.test(js), (handlerRe.exec(js) || [])[0]);
+  // snack() and textContent assignments are safe, so only template strings that become HTML are checked
+  const rawRe = /\$\{(item|r|f)\.(name|brand|notes|lot_number|manufacturer|firearm_name)\}/;
+  const rawLine = js.split('\n').find((l) => rawRe.test(l) && !/textContent/.test(l));
+  check('names, brands and lots are escaped where cards and tables render them', !rawLine, rawLine && rawLine.trim());
 
   // 2. Scoring: same rules as the server
   const shots = SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 }));
@@ -89,6 +106,17 @@ function runTests(scripts) {
   f.set(sm(missing), garmin(26));
   tm = f.pfChronoTimeMatch();
   check('timing copes with two shots missing mid-string', tm && tm.matched === 20 && tm.insideUnmatched === 2 && tm.outside === 4 && tm.strong, tm && [tm.matched, tm.insideUnmatched, tm.outside]);
+
+  // Equal counts: shot order is trusted unless timing is convincing and disagrees
+  f.set(sm(all22), garmin(22));
+  check('equal counts, same order: timing agrees, no warning', !f.pfTimingDisagrees(f.pfChronoTimeMatch()));
+  const shifted = { shots: GARMIN_TIMES.slice(4, 26).map((t, i) => ({ idx: i + 1, time: t, speed_fps: GARMIN_FPS[i + 4], sm_idx: null, unpaired: false })) };
+  f.set(sm(all22), shifted);
+  tm = f.pfChronoTimeMatch();
+  check('equal counts, but the Garmin string is shifted by 4: timing disagrees', f.pfTimingDisagrees(tm), tm && [tm.matched, tm.strong]);
+  f.set({ shots: sm(all22).shots.map((s) => ({ ...s, ts: null })) }, garmin(22));
+  check('equal counts without timestamps: no warning', !f.pfTimingDisagrees(f.pfChronoTimeMatch()));
+  check('no timing result: no warning', !f.pfTimingDisagrees(null));
 
   f.set({ shots: sm(all22).shots.map((s) => ({ ...s, ts: null })) }, garmin(26));
   check('no ShotMarker timestamps: no timing result', f.pfChronoTimeMatch() === null);

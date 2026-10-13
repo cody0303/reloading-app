@@ -1107,7 +1107,7 @@ COL_TABLES.loads={defs:LOAD_COLS,defaults:LOAD_COL_DEFAULTS,redraw:()=>{
 }};
 
 function escHtml(s){
-  return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // Shot naming. ShotMarker already labels sighters S1, S2…; that label is the shorthand everywhere.
@@ -1200,7 +1200,7 @@ function renderLoads(rows){
     const atd=document.createElement('td');atd.className='c-act';
     // perf shortcut badge
     atd.innerHTML=`
-      <button class="icon-btn" title="Performance data" onclick="viewLotPerf('${row.lot_number}')" style="color:var(--p)"><span class="mi ms" style="font-size:18px">target</span></button>
+      <button class="icon-btn" title="Performance data" data-lot="${escHtml(row.lot_number)}" onclick="viewLotPerf(this.dataset.lot)" style="color:var(--p)"><span class="mi ms" style="font-size:18px">target</span></button>
       <button class="icon-btn" title="Print label" onclick="printLabel(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">label</span></button>
       <button class="icon-btn" title="Edit" onclick="editLoad(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
       <button class="icon-btn" title="Delete" onclick="deleteLoad(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>`;
@@ -1298,7 +1298,7 @@ function finishInvIssues(proceed){
 function showInvIssue(){
   if(invIssueIdx>=invIssues.length){ finishInvIssues(true); return; }
   const m=invIssues[invIssueIdx];
-  const label=`<strong>${m.category}</strong>: ${m.name}${m.brand?' — '+m.brand:''}`;
+  const label=`<strong>${escHtml(m.category)}</strong>: ${escHtml(m.name)}${m.brand?' — '+escHtml(m.brand):''}`;
   const body=document.getElementById('inv-prompt-body');
   const btn=document.getElementById('inv-prompt-add-btn');
   if(m.status==='short'){
@@ -1469,14 +1469,14 @@ function renderInventory(items){
       <div class="inv-card-header">
         <div class="inv-cat-icon ${meta.cls}"><span class="mi material-icons-round">${meta.icon}</span></div>
         <div style="flex:1">
-          <div class="inv-card-title">${item.name}</div>
-          ${item.brand?`<div style="font-size:11px;color:var(--osv)">${item.brand}</div>`:''}
+          <div class="inv-card-title">${escHtml(item.name)}</div>
+          ${item.brand?`<div style="font-size:11px;color:var(--osv)">${escHtml(item.brand)}</div>`:''}
         </div>
         <div class="inv-card-qty ${low?'qty-low':''}">${formatQty(item.quantity,item.unit)} ${item.unit}</div>
       </div>
       <div class="inv-card-body">
         ${renderInvDetails(item)}
-        ${item.notes?`<div style="font-size:12px;color:var(--osv);margin-top:4px">${item.notes}</div>`:''}
+        ${item.notes?`<div style="font-size:12px;color:var(--osv);margin-top:4px">${escHtml(item.notes)}</div>`:''}
         ${low?`<div class="chip chip-warn" style="margin-top:6px"><span class="mi material-icons-round">warning</span>Low / Out of Stock</div>`:''}
       </div>
       <div style="padding:6px 10px;border-top:1px solid var(--olv);display:flex;justify-content:flex-end;gap:4px">
@@ -1514,7 +1514,7 @@ function renderInvDetails(item){
       if(parts[1]) rows.push(['Use', parts[1]]);
     }
   }
-  return rows.map(([k,v])=>`<div class="inv-row"><span class="key">${k}</span><span class="val">${v}</span></div>`).join('');
+  return rows.map(([k,v])=>`<div class="inv-row"><span class="key">${k}</span><span class="val">${escHtml(v)}</span></div>`).join('');
 }
 
 function onInvCategoryChange(){
@@ -1682,23 +1682,23 @@ async function fetchFirearms(){
     const sel=document.getElementById('pf-firearm');
     const cur=sel.value;
     sel.innerHTML='<option value="">— select firearm —</option>';
-    allFirearms.forEach(f=>sel.innerHTML+=`<option value="${f.id}">${f.name}${f.caliber?' ('+f.caliber+')':''}</option>`);
+    allFirearms.forEach(f=>sel.innerHTML+=`<option value="${f.id}">${escHtml(f.name)}${f.caliber?' ('+escHtml(f.caliber)+')':''}</option>`);
     sel.value=cur;
     // filter select on perf page
     const fsel=document.getElementById('p-gun');
     const fcur=fsel.value;
     fsel.innerHTML='<option value="">Any</option>';
-    allFirearms.forEach(f=>fsel.innerHTML+=`<option value="${f.id}">${f.name}</option>`);
+    allFirearms.forEach(f=>fsel.innerHTML+=`<option value="${f.id}">${escHtml(f.name)}</option>`);
     fsel.value=fcur;
   }catch(e){snack('Error loading firearms','err')}
 }
 
 const FIREARM_COLS=[
-  {key:'name',label:'Name',cell:r=>`<strong>${r.name}</strong>`},
-  {key:'caliber',label:'Caliber',cell:r=>r.caliber||'—'},
+  {key:'name',label:'Name',cell:r=>`<strong>${escHtml(r.name)}</strong>`},
+  {key:'caliber',label:'Caliber',cell:r=>r.caliber?escHtml(r.caliber):'—'},
   {key:'barrel_length',label:'Barrel Length',num:true,cell:r=>r.barrel_length?r.barrel_length+' '+r.barrel_length_unit:'—'},
   {key:'twist_rate',label:'Twist Rate',cell:r=>fmtTwist(r)},
-  {key:'manufacturer',label:'Manufacturer',cell:r=>r.manufacturer||'—'},
+  {key:'manufacturer',label:'Manufacturer',cell:r=>r.manufacturer?escHtml(r.manufacturer):'—'},
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
 ];
 const FIREARM_COL_DEFAULTS={
@@ -1883,8 +1883,8 @@ function perfToggleRow(id){
 
 const POSITION_ABBR={'Standing, unsupported':'Stand','Standing, sling supported':'Stand sling','Seated':'Seated','Prone, sling supported':'Prone sling','Prone, supported':'Prone supp','Obstacle':'Obstacle'};
 const PERF_COLS=[
-  {key:'lot_number',label:'Lot #',cell:r=>`<button class="badge badge-blue" onclick="event.stopPropagation();viewLotLoads('${r.lot_number}')">${r.lot_number||'—'}</button>`},
-  {key:'firearm_name',label:'Firearm',cell:r=>r.firearm_name||'—'},
+  {key:'lot_number',label:'Lot #',cell:r=>`<button class="badge badge-blue" data-lot="${escHtml(r.lot_number)}" onclick="event.stopPropagation();viewLotLoads(this.dataset.lot)">${escHtml(r.lot_number||'—')}</button>`},
+  {key:'firearm_name',label:'Firearm',cell:r=>r.firearm_name?escHtml(r.firearm_name):'—'},
   {key:'date',label:'Date',num:true,cell:r=>r.date||'—'},
   {key:'distance',label:'Distance',num:true,cell:r=>r.distance?r.distance+' '+r.distance_unit:'—'},
   {key:'muzzle_avg_velocity',label:'Muzzle Avg',num:true,cell:r=>r.muzzle_avg_velocity?fmtVel(r.muzzle_avg_velocity):'—'},
@@ -1903,7 +1903,7 @@ const PERF_COLS=[
       ?`<span style="opacity:.4" title="Not used: the distance or target face was changed after the shots were imported">${escHtml(r.score_text)}</span>`
       :escHtml(r.score_text);
   }},
-  {key:'position',label:'Position',cell:r=>r.position?POSITION_ABBR[r.position]||r.position:'—'},
+  {key:'position',label:'Position',cell:r=>r.position?escHtml(POSITION_ABBR[r.position]||r.position):'—'},
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
 ];
 const PERF_COL_DEFAULTS={
@@ -2019,11 +2019,11 @@ async function pfImportShotMarker(event){
         const score=s.group_text||'';
         return `<button onclick="pfApplySession(pfSmSessions[${i}])" style="text-align:left;background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);padding:8px 12px;cursor:pointer;font-family:inherit;font-size:13px;transition:background .15s;width:100%" onmouseover="this.style.background='var(--sfv)'" onmouseout="this.style.background='var(--sf)'">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <strong>${s.name||'Session '+(i+1)}</strong>
+            <strong>${escHtml(s.name||'Session '+(i+1))}</strong>
             <span style="color:var(--osv);font-size:12px">${s.distance}${s.dist_unit==='y'?'yd':'m'}</span>
             <span style="color:var(--osv);font-size:12px">${rec} shots</span>
             ${score?`<span style="color:var(--p);font-size:12px;font-weight:500">${score}</span>`:''}
-            <span style="color:var(--osv);font-size:11px;margin-left:auto">${s.face_id}</span>
+            <span style="color:var(--osv);font-size:11px;margin-left:auto">${escHtml(s.face_id||'')}</span>
           </div>
         </button>`;
       }).join('');
@@ -2065,7 +2065,7 @@ function pfApplySession(session){
   pfUpdateFromSelection();
   setTimeout(()=>pfInitShotCanvas(), 80);
   document.getElementById('pf-sm-status').innerHTML=
-    `<span style="color:var(--ok)">✓ ${session.name||'Session'} loaded — select shots below</span>`;
+    `<span style="color:var(--ok)">✓ ${escHtml(session.name||'Session')} loaded — select shots below</span>`;
   if(pfChrono) pfChronoCheck().then(ok=>{ if(!ok) pfClearChrono(); });
 }
 
@@ -2392,6 +2392,11 @@ function chronoAlignAnswer(v){
 }
 
 // Resolves false if the user cancelled the alignment prompt.
+// With equal shot counts, shot order is the default pairing. Timing only overrides it when timing is convincing and differs.
+function pfTimingDisagrees(tm){
+  return !!(tm&&tm.strong&&tm.plan.map.some((j,i)=>j!==i));
+}
+
 async function pfChronoCheck(){
   if(!pfChrono) return true;
   const nc=pfChrono.shots.length, ns=pfSmSelected?pfSmSelected.shots.length:0;
@@ -2407,6 +2412,14 @@ async function pfChronoCheck(){
       if(choice==='best') pfChronoAlign='best match by '+rec.source;
     }else{
       pfChronoPlan=pfPlanFromOffset(0);
+      // Same count usually means shot i pairs with shot i, but confirm with timing when it is convincing
+      const tm=pfChronoTimeMatch();
+      if(pfTimingDisagrees(tm)){
+        const n=tm.plan.map.filter((j,i)=>j!==i).length;
+        if(confirm(`Both files have ${nc} shots, but their timing pairs ${n} of them differently than shot order does.\n\nOK = pair by timing (recommended)\nCancel = pair by shot order`)){
+          pfChronoPlan=tm.plan; pfChronoAlign='best match by timing';
+        }
+      }
     }
   }
   pfChronoPair();
@@ -2466,7 +2479,7 @@ function pfChronoBuildList(){
       pfSmSelected&&s.sm_idx==null&&!s.unpaired?'no ShotMarker match':'',
     ].filter(Boolean).join(' · ');
     const t=document.createElement('span');
-    t.innerHTML=`<b>#${s.idx}</b> ${fmtVel(s.speed_fps)}${s.time?' · '+s.time:''}${extra?` <span style="color:var(--osv)">· ${extra}</span>`:''}`;
+    t.innerHTML=`<b>#${s.idx}</b> ${fmtVel(s.speed_fps)}${s.time?' · '+escHtml(s.time):''}${extra?` <span style="color:var(--osv)">· ${escHtml(extra)}</span>`:''}`;
     row.append(cb,t);
     wrap.appendChild(row);
   });
@@ -2809,7 +2822,7 @@ async function fetchAC(){
     try{
       const vals=await api('GET',`/api/distinct/${col}`);
       const dl=document.getElementById(dlId);
-      if(dl) dl.innerHTML=vals.map(v=>`<option value="${v}">`).join('');
+      if(dl) dl.innerHTML=vals.map(v=>`<option value="${escHtml(v)}">`).join('');
     }catch(e){}
   }
   // inventory-based AC for component fields
@@ -2832,7 +2845,7 @@ function refreshLotDatalist(){
   const dl=document.getElementById('dl-perf-lot');
   if(!dl) return;
   const lots=[...new Set(allLoads.map(r=>r.lot_number).filter(Boolean))];
-  dl.innerHTML=lots.map(l=>`<option value="${l}">`).join('');
+  dl.innerHTML=lots.map(l=>`<option value="${escHtml(l)}">`).join('');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2928,7 +2941,7 @@ async function renderCompare(){
   if(pills) pills.innerHTML=sessions.map((s,i)=>`
     <span style="display:inline-flex;align-items:center;gap:5px;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:500;background:${CMP_COLORS[i]}22;color:${CMP_COLORS[i]};border:1px solid ${CMP_COLORS[i]}55">
       <span style="width:8px;height:8px;border-radius:50%;background:${CMP_COLORS[i]};flex-shrink:0"></span>
-      ${s.lot_number||'Session '+s.id} · ${s.distance||'?'}${s.distance_unit||'yd'}
+      ${escHtml(s.lot_number||'Session '+s.id)} · ${s.distance||'?'}${s.distance_unit||'yd'}
     </span>`).join('');
 
   // Mismatch warning
@@ -3029,10 +3042,10 @@ function buildCmpCard(s,load,shots,i){
     <div style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);padding:10px 12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <span style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0"></span>
-        <span style="font-size:13px;font-weight:500">${s.lot_number||'Session '+s.id}</span>
-        <span style="font-size:11px;color:var(--osv);margin-left:auto">${s.distance||''}${s.distance_unit||''} · ${s.date||''}</span>
+        <span style="font-size:13px;font-weight:500">${escHtml(s.lot_number||'Session '+s.id)}</span>
+        <span style="font-size:11px;color:var(--osv);margin-left:auto">${escHtml(`${s.distance||''}${s.distance_unit||''} · ${s.date||''}`)}</span>
       </div>
-      ${loadLine?`<div style="font-size:11px;color:var(--osv);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--olv)">${loadLine}</div>`:''}
+      ${loadLine?`<div style="font-size:11px;color:var(--osv);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--olv)">${escHtml(loadLine)}</div>`:''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px">
         ${[
           ['Avg Vel', s.avg_velocity?s.avg_velocity+' fps':'—'],
@@ -3162,7 +3175,10 @@ Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
     <div style="display:flex;flex-direction:column">
       <div style="position:relative;background:#e8e8e8;overflow:hidden" id="smv-canvas-wrap">
         <canvas id="smv-canvas" style="position:absolute;top:0;left:0;touch-action:none;cursor:grab"></canvas>
-        <div style="position:absolute;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px">
+        <div id="smv-view-toggle" style="position:absolute;top:8px;left:8px;display:none;z-index:5;background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);overflow:hidden">
+          <button class="fchip" data-kind="target" onclick="smvSetView('target')" style="border:0;border-radius:0">Target</button><button class="fchip" data-kind="velocity" onclick="smvSetView('velocity')" style="border:0;border-radius:0">Velocity</button>
+        </div>
+        <div id="smv-zoom-btns" style="position:absolute;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px">
           <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(1.25)"><span class="mi material-icons-round" style="font-size:18px">zoom_in</span></button>
           <button class="icon-btn" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoom(0.8)"><span class="mi material-icons-round" style="font-size:18px">zoom_out</span></button>
           <button class="icon-btn" title="Zoom to group" style="background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);width:32px;height:32px" onclick="smvZoomToGroup()"><span class="mi material-icons-round" style="font-size:18px">center_focus_strong</span></button>
@@ -3567,8 +3583,13 @@ async function openShotViewer(perfId){
   setLoading(true);
   try{
     const shots=await api('GET',`/api/performance/${perfId}/shots`);
-    if(!shots.length){ smvOpenUpload(perfId); setLoading(false); return; }
     smvChrono=await api('GET',`/api/performance/${perfId}/chrono`).catch(()=>[]);
+    if(!shots.length){
+      if(!smvChrono.length){ smvOpenUpload(perfId); setLoading(false); return; }
+      smvOpenChronoOnly(perf);                 // Garmin data but no ShotMarker string: speed scatter instead of a target
+      setLoading(false); return;
+    }
+    smvSetMode('sm');
     smvPinned=-1; smvHoverIdx=-1; smvNear=[]; smvRenderCard();
     smvShots=shots;
     smvSession={face_id:shots[0].face_id||'NRA_MR1',distance:shots[0].distance||600,dist_unit:shots[0].dist_unit||'y',bullet_d_mm:shots[0].bullet_d_mm||7.82};
@@ -3576,36 +3597,228 @@ async function openShotViewer(perfId){
     openModal('sm-view-overlay');
     smvResetView();
     requestAnimationFrame(()=>smvInitCanvas());
+    const both=smvChrono.length>0;
+    document.getElementById('smv-view-toggle').style.display=both?'flex':'none';
+    document.querySelectorAll('#smv-view-toggle button').forEach(b=>b.classList.toggle('on',b.dataset.kind==='target'));
     const rec=shots.filter(s=>!s.sighter);
     document.getElementById('smv-info').textContent=`${rec.length} record · ${shots[0].face_id||''} · ${shots[0].distance||''}${shots[0].dist_unit||''}`;
     smvBuildShotList();
     smvUpdateStats();
 
-    // Load data strip
-    const loadBar=document.getElementById('smv-load-bar');
-    loadBar.style.display='none';
-    if(perf?.lot_number){
-      try{
-        const loads=await api('GET',`/api/loads?search=${encodeURIComponent(perf.lot_number)}`);
-        const load=loads.find(l=>l.lot_number===perf.lot_number);
-        if(load){
-          const fields=[
-            load.cartridge,
-            [load.bullet_manufacturer, load.bullet_type, load.bullet_weight ? load.bullet_weight+'gr' : null].filter(Boolean).join(' '),
-            load.powder_type && load.powder_weight ? `${load.powder_type} ${load.powder_weight}gr` : load.powder_type,
-            load.cartridge_length ? `COAL ${load.cartridge_length}` : null,
-            load.base_to_ogive ? `BTO ${load.base_to_ogive}` : null,
-            load.primer,
-          ].filter(Boolean);
-          loadBar.innerHTML = fields.map(f=>
-            `<span style="display:flex;align-items:center;gap:4px"><span style="color:var(--p);font-size:14px" class="mi material-icons-round">fiber_manual_record</span>${f}</span>`
-          ).join('');
-          loadBar.style.display='flex';
-        }
-      }catch(e){}
-    }
+    await smvShowLoadBar(perf);
   }catch(e){snack('Error loading shots','err')}
   setLoading(false);
+}
+
+// Load data strip under the viewer
+async function smvShowLoadBar(perf){
+  const loadBar=document.getElementById('smv-load-bar');
+  loadBar.style.display='none';
+  if(!perf?.lot_number) return;
+  try{
+    const loads=await api('GET',`/api/loads?search=${encodeURIComponent(perf.lot_number)}`);
+    const load=loads.find(l=>l.lot_number===perf.lot_number);
+    if(!load) return;
+    const fields=[
+      load.cartridge,
+      [load.bullet_manufacturer, load.bullet_type, load.bullet_weight ? load.bullet_weight+'gr' : null].filter(Boolean).join(' '),
+      load.powder_type && load.powder_weight ? `${load.powder_type} ${load.powder_weight}gr` : load.powder_type,
+      load.cartridge_length ? `COAL ${load.cartridge_length}` : null,
+      load.base_to_ogive ? `BTO ${load.base_to_ogive}` : null,
+      load.primer,
+    ].filter(Boolean);
+    loadBar.innerHTML = fields.map(f=>
+      `<span style="display:flex;align-items:center;gap:4px"><span style="color:var(--p);font-size:14px" class="mi material-icons-round">fiber_manual_record</span>${escHtml(f)}</span>`
+    ).join('');
+    loadBar.style.display='flex';
+  }catch(e){}
+}
+
+// ── Garmin-only viewer: speed scatter drawn where the target would be ──────────
+let smvMode='sm', smvCSel=new Set(), smvCHover=-1, smvViewKind='target';
+
+// Is this chronograph shot counted? Chrono-only: its own tick. With a ShotMarker string: follows its paired
+// target shot's tick (unpaired shots always count), the same rule the muzzle stats use.
+function smvChronoOn(i){
+  if(smvMode==='chrono') return smvCSel.has(i);
+  const c=smvChrono[i], k=smvShots.findIndex(s=>s.idx===c.sm_idx);
+  return c.sm_idx==null||k<0||smvSelected.has(k);
+}
+// Highlighted chart point: the chart's own hover, or the shot hovered in the target-view list
+function smvChronoHover(){
+  if(smvCHover>=0||smvMode==='chrono'||smvHoverIdx<0) return smvCHover;
+  const sh=smvShots[smvHoverIdx];
+  return sh?smvChrono.findIndex(c=>c.sm_idx===sh.idx):-1;
+}
+
+// Target | Velocity switch, offered when a session has both ShotMarker shots and Garmin data
+function smvSetView(kind){
+  smvViewKind=kind;
+  const chart=kind==='velocity';
+  const C=document.getElementById('smv-canvas');
+  document.getElementById('smv-zoom-btns').style.display=chart?'none':'';
+  document.getElementById('smv-canvas-wrap').style.background=chart?'var(--sf)':'#e8e8e8';
+  document.getElementById('smv-tip').style.display='none';
+  document.querySelectorAll('#smv-view-toggle button').forEach(b=>b.classList.toggle('on',b.dataset.kind===kind));
+  smvCHover=-1;
+  if(chart){
+    if(C._icTeardown) C._icTeardown();
+    smvResizeAndDraw=smvDrawChrono;
+    C.style.cursor='default'; C.onwheel=null; C.onpointerdown=smvChronoPoint; C.onpointermove=smvChronoPoint;
+    C.onmouseleave=()=>{ document.getElementById('smv-tip').style.display='none'; if(smvCHover>=0){ smvCHover=-1; smvDrawChrono(); } };
+    requestAnimationFrame(smvDrawChrono);
+  }else{
+    C.style.cursor='grab';
+    smvInitCanvas();
+    requestAnimationFrame(()=>smvResizeAndDraw());
+  }
+}
+
+function smvSetMode(mode){
+  smvMode=mode;
+  const chart=mode==='chrono';
+  document.getElementById('smv-zoom-btns').style.display=chart?'none':'';
+  document.getElementById('smv-view-toggle').style.display='none';
+  smvViewKind=chart?'velocity':'target'; smvCHover=-1;
+  document.getElementById('smv-canvas-wrap').style.background=chart?'var(--sf)':'#e8e8e8';
+  document.getElementById('smv-canvas').style.cursor=chart?'default':'grab';
+  document.getElementById('smv-tip').style.display='none';
+  document.querySelectorAll('#smv-shot-list button[onclick^="smvCheckType"]').forEach(b=>b.style.display=chart?'none':'');
+  if(chart){ document.getElementById('smv-load-bar').style.display='none'; }
+}
+
+async function smvOpenChronoOnly(perf){
+  smvShots=[]; smvSession=null; smvPinned=-1; smvHoverIdx=-1; smvNear=[]; smvRenderCard();
+  smvCSel=new Set(smvChrono.map((_,i)=>i));
+  smvSetMode('chrono');
+  document.getElementById('smv-info').textContent=`${smvChrono.length} Garmin shots · no ShotMarker string yet (use Replace to add one)`;
+  openModal('sm-view-overlay');
+  const C=document.getElementById('smv-canvas');
+  if(C._icTeardown) C._icTeardown();
+  smvResizeAndDraw=smvDrawChrono;
+  C.onwheel=null; C.onpointerdown=smvChronoPoint; C.onpointermove=smvChronoPoint;
+  C.onmouseleave=()=>{ document.getElementById('smv-tip').style.display='none'; if(smvCHover>=0){ smvCHover=-1; smvDrawChrono(); } };
+  requestAnimationFrame(smvDrawChrono);
+  smvBuildShotList(); smvUpdateStats();
+  await smvShowLoadBar(perf);
+}
+
+// Plot geometry shared by drawing and hit-testing: shot number across, speed up
+function smvChronoLayout(W,H){
+  const n=smvChrono.length, v=smvChrono.map(s=>s.speed_fps);
+  let lo=Math.min(...v), hi=Math.max(...v);
+  const pad=(hi-lo)*0.2||10; lo-=pad; hi+=pad;
+  const L=64,R=14,T=14,B=30, pw=W-L-R, ph=H-T-B;
+  return {L,R,T,B,pw,ph,lo,hi,x:i=>L+(i+0.5)/n*pw,y:s=>T+(hi-s)/(hi-lo)*ph};
+}
+
+function smvDrawChrono(){
+  const C=document.getElementById('smv-canvas'); if(!C||!smvChrono.length) return;
+  const wrap=C.parentElement, W=wrap.clientWidth, H=wrap.clientHeight;
+  if(!W||!H) return;
+  const dpr=window.devicePixelRatio||1;
+  if(C.width!==Math.round(W*dpr)||C.height!==Math.round(H*dpr)){
+    C.width=Math.round(W*dpr); C.height=Math.round(H*dpr);
+    C.style.width=W+'px'; C.style.height=H+'px';
+  }
+  const ctx=C.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const cs=getComputedStyle(document.documentElement), col=k=>cs.getPropertyValue(k).trim()||'#888';
+  const P=col('--p'), OSV=col('--osv'), OLV=col('--olv'), SF=col('--sf');
+  const g=smvChronoLayout(W,H), n=smvChrono.length;
+
+  // Grid and speed axis
+  ctx.font='11px sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='right';
+  for(let k=0;k<=4;k++){
+    const val=g.lo+(g.hi-g.lo)*k/4, y=g.y(val);
+    ctx.strokeStyle=OLV; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(g.L,y); ctx.lineTo(g.L+g.pw,y); ctx.stroke();
+    ctx.fillStyle=OSV; ctx.fillText(fmtVel(val),g.L-6,y);
+  }
+  // Shot-number axis
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const step=Math.max(1,Math.ceil(n/12));
+  smvChrono.forEach((s,i)=>{ if(i%step===0){ ctx.fillStyle=OSV; ctx.fillText('#'+s.idx,g.x(i),g.T+g.ph+8); } });
+
+  // Average and one standard deviation either side, from the checked shots
+  const sel=smvChrono.filter((_,i)=>smvChronoOn(i)).map(s=>s.speed_fps);
+  const hov=smvChronoHover();
+  if(sel.length){
+    const st=chronoStats(sel);
+    if(sel.length>1){
+      ctx.globalAlpha=0.14; ctx.fillStyle=P;
+      ctx.fillRect(g.L,g.y(st.avg+st.sd),g.pw,g.y(st.avg-st.sd)-g.y(st.avg+st.sd));
+      ctx.globalAlpha=1;
+    }
+    ctx.strokeStyle=P; ctx.lineWidth=1.5; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(g.L,g.y(st.avg)); ctx.lineTo(g.L+g.pw,g.y(st.avg)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=P; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('avg '+fmtVel(st.avg),g.L+4,g.y(st.avg)-3);
+  }
+
+  // Shots in order, joined by a faint line; unchecked ones hollow
+  ctx.strokeStyle=OLV; ctx.lineWidth=1; ctx.beginPath();
+  smvChrono.forEach((s,i)=>{ const x=g.x(i), y=g.y(s.speed_fps); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.stroke();
+  smvChrono.forEach((s,i)=>{
+    const x=g.x(i), y=g.y(s.speed_fps), isOn=smvChronoOn(i);
+    if(i===hov){ ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.strokeStyle=P; ctx.lineWidth=2; ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2);
+    if(isOn){ ctx.fillStyle=P; ctx.fill(); }
+    else { ctx.fillStyle=SF; ctx.fill(); ctx.strokeStyle=OSV; ctx.lineWidth=1.5; ctx.stroke(); }
+  });
+}
+
+// Hover (desktop) or tap (touch): tooltip for the nearest shot
+function smvChronoPoint(e){
+  const C=document.getElementById('smv-canvas'), tip=document.getElementById('smv-tip');
+  const rect=C.getBoundingClientRect(), mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  const g=smvChronoLayout(C.parentElement.clientWidth,C.parentElement.clientHeight);
+  let best=-1, bd=24;
+  smvChrono.forEach((s,i)=>{ const d=Math.hypot(g.x(i)-mx,g.y(s.speed_fps)-my); if(d<bd){ bd=d; best=i; } });
+  if(best!==smvCHover){ smvCHover=best; smvDrawChrono(); }
+  if(best<0){ tip.style.display='none'; return; }
+  const s=smvChrono[best];
+  const bits=[s.time?escHtml(s.time):'', s.cold_bore?'cold bore':'', s.clean_bore?'clean bore':'', s.notes?escHtml(s.notes):''].filter(Boolean);
+  tip.innerHTML=`<b>#${s.idx}</b> ${fmtVel(s.speed_fps)}`+(bits.length?`<br><span style="color:var(--osv)">${bits.join(' · ')}</span>`:'');
+  tip.style.display='block';
+  const px=g.x(best), py=g.y(s.speed_fps), W=C.parentElement.clientWidth;
+  tip.style.left=Math.max(4,Math.min(W-tip.offsetWidth-4,px+12))+'px';
+  tip.style.top=Math.max(4,py-tip.offsetHeight-12)+'px';
+}
+
+function smvBuildChronoList(){
+  const wrap=document.getElementById('smv-shot-items'); wrap.innerHTML='';
+  smvChrono.forEach((s,i)=>{
+    const item=document.createElement('div');
+    item.style.cssText='display:flex;align-items:center;gap:5px;padding:1px 4px;border-radius:4px;cursor:pointer;user-select:none';
+    item.onmouseenter=()=>{ item.style.background='var(--sfv)'; smvCHover=i; smvDrawChrono(); };
+    item.onmouseleave=()=>{ item.style.background=''; smvCHover=-1; smvDrawChrono(); };
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.checked=smvCSel.has(i);
+    cb.style.cssText='width:14px;height:14px;cursor:pointer;flex-shrink:0;accent-color:var(--p)';
+    const toggle=()=>{ smvCSel[cb.checked?'add':'delete'](i); smvUpdateStats(); smvDrawChrono(); };
+    cb.onchange=toggle;
+    const lbl=document.createElement('label');
+    lbl.style.cssText='font-size:12px;cursor:pointer;line-height:1.2;white-space:nowrap';
+    lbl.innerHTML=`<b>#${s.idx}</b> · ${fmtVel(s.speed_fps)}`;
+    item.onclick=e=>{ if(e.target!==cb){ cb.checked=!cb.checked; toggle(); } };
+    item.appendChild(cb); item.appendChild(lbl);
+    wrap.appendChild(item);
+  });
+}
+
+function smvChronoStatsBar(){
+  const sel=[...smvCSel].map(i=>smvChrono[i].speed_fps);
+  document.getElementById('smv-stats-bar').innerHTML=sel.length
+    ?`<span><b>${sel.length}</b> of ${smvChrono.length} shots</span>`+velSpans(sel,['Avg','SD','ES'])
+    :`<span><b>0</b> shots checked</span>`;
+}
+
+// Average, population SD (as the Garmin reports it) and extreme spread of a list of speeds
+function chronoStats(v){
+  const avg=v.reduce((a,x)=>a+x,0)/v.length;
+  return {avg, sd:Math.sqrt(v.reduce((a,x)=>a+(x-avg)**2,0)/v.length), es:Math.max(...v)-Math.min(...v)};
 }
 
 function smvOpenUpload(perfId){
@@ -3934,6 +4147,7 @@ function smvZoom(f){smvZoomLevel=Math.max(0.25,Math.min(30,smvZoomLevel*f));smvR
 function smvResetView(){smvZoomLevel=1;smvPanX=0;smvPanY=0;smvResizeAndDraw();}
 
 function smvBuildShotList(){
+  if(smvMode==='chrono') return smvBuildChronoList();
   const wrap=document.getElementById('smv-shot-items'); if(!wrap) return;
   wrap.innerHTML='';
   smvShots.forEach((s,i)=>{
@@ -3959,6 +4173,10 @@ function smvBuildShotList(){
   });
 }
 function smvCheckAll(checked){
+  if(smvMode==='chrono'){
+    smvChrono.forEach((_,i)=>{checked?smvCSel.add(i):smvCSel.delete(i);});
+    smvBuildShotList(); smvUpdateStats(); smvDrawChrono(); return;
+  }
   smvShots.forEach((_,i)=>{checked?smvSelected.add(i):smvSelected.delete(i);});
   smvBuildShotList(); smvUpdateStats(); smvResizeAndDraw();
 }
@@ -3986,6 +4204,7 @@ function scoreOf(shots,faceId){
 }
 
 function smvUpdateStats(){
+  if(smvMode==='chrono') return smvChronoStatsBar();
   const pos=new Map(smvShots.map((s,i)=>[s.idx,i]));
   const muzzle=smvChrono.filter(c=>c.sm_idx==null||!pos.has(c.sm_idx)||smvSelected.has(pos.get(c.sm_idx))).map(c=>c.speed_fps);
   const p=allPerf.find(x=>x.id===smvPerfId);
@@ -4113,7 +4332,7 @@ function smHover(e,canvasId,tipId){
   else{
     const s=shots[hit.i], sess=smSession;
     const moaMm=smMoaMm(sess?.distance||600,sess?.dist_unit||'y');
-    tip.innerHTML=`<b>${escHtml(shotName(s,hit.i))}</b> ${s.score||''}<br>`+
+    tip.innerHTML=`<b>${escHtml(shotName(s,hit.i))}</b> ${escHtml(s.score||'')}<br>`+
       `x: ${s.x_mm?.toFixed(1)} mm &nbsp;y: ${s.y_mm?.toFixed(1)} mm<br>`+
       `r: ${Math.hypot(s.x_mm,s.y_mm).toFixed(1)} mm &nbsp;(${(s.x_mm/moaMm).toFixed(2)} / ${(s.y_mm/moaMm).toFixed(2)} MOA)`+
       (s.v_fps?`<br>v: ${s.v_fps} fps`:'');
