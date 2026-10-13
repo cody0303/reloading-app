@@ -94,6 +94,19 @@ def init_db():
             face_id TEXT, distance REAL, dist_unit TEXT, bullet_d_mm REAL,
             FOREIGN KEY(performance_id) REFERENCES performance(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS chrono_shots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            performance_id INTEGER NOT NULL,
+            idx INTEGER,
+            speed_fps REAL,
+            time TEXT,
+            clean_bore INTEGER DEFAULT 0,
+            cold_bore INTEGER DEFAULT 0,
+            notes TEXT,
+            ke REAL, power_factor REAL,
+            sm_idx INTEGER,
+            FOREIGN KEY(performance_id) REFERENCES performance(id) ON DELETE CASCADE
+        );
     """)
     # Default settings
     defaults = {
@@ -131,6 +144,9 @@ def init_db():
         ("firearms", "manufacturer",   "TEXT"),
         ("firearms", "barrel_length_unit", "TEXT DEFAULT 'in'"),
         ("performance", "position",        "TEXT"),
+        ("performance", "muzzle_avg_velocity",    "REAL"),
+        ("performance", "muzzle_std_dev",         "REAL"),
+        ("performance", "muzzle_extreme_spread",  "REAL"),
     ]
     for table, col, coldef in migrations:
         try:
@@ -471,7 +487,8 @@ def list_performance():
 def create_performance():
     data = request.json or {}
     cols = ["lot_number","firearm_id","date","distance","distance_unit",
-            "avg_velocity","std_dev","extreme_spread","group_size","group_x","group_y","group_unit","num_shots","position","notes"]
+            "avg_velocity","std_dev","extreme_spread","group_size","group_x","group_y","group_unit","num_shots","position","notes",
+            "muzzle_avg_velocity","muzzle_std_dev","muzzle_extreme_spread"]
     vals = {c: data.get(c) or None for c in cols}
     conn = get_db()
     cur = conn.execute(
@@ -490,11 +507,24 @@ def create_performance():
 def update_performance(pid):
     data = request.json or {}
     cols = ["lot_number","firearm_id","date","distance","distance_unit",
-            "avg_velocity","std_dev","extreme_spread","group_size","group_x","group_y","group_unit","num_shots","position","notes"]
+            "avg_velocity","std_dev","extreme_spread","group_size","group_x","group_y","group_unit","num_shots","position","notes",
+            "muzzle_avg_velocity","muzzle_std_dev","muzzle_extreme_spread"]
     vals = {c: data.get(c) or None for c in cols}
     sets = ", ".join(f"{c}=?" for c in vals)
     conn = get_db()
+    old = conn.execute(
+        "SELECT distance, distance_unit, group_unit, group_size, group_x, group_y FROM performance WHERE id=?",
+        (pid,)).fetchone()
     conn.execute(f"UPDATE performance SET {sets} WHERE id=?", [*vals.values(), pid])
+    # Group sizes are stored in MOA/mil, so changing the distance or unit leaves them stale.
+    # Re-derive them from the saved shots, unless the group values were edited by hand here.
+    if old:
+        changed = (not _same_num(old["distance"], vals["distance"])
+                   or (old["distance_unit"] or "yd") != (vals["distance_unit"] or "yd")
+                   or (old["group_unit"] or "MOA") != (vals["group_unit"] or "MOA"))
+        group_edited = any(not _same_num(old[k], vals[k]) for k in ("group_size", "group_x", "group_y"))
+        if changed and not group_edited:
+            _refresh_group_angles(conn, pid)
     conn.commit()
     row = conn.execute("""
         SELECT p.*, f.name as firearm_name FROM performance p
@@ -502,6 +532,27 @@ def update_performance(pid):
     """, (pid,)).fetchone()
     conn.close()
     return jsonify(dict(row))
+
+def _same_num(a, b):
+    try: return float(a or 0) == float(b or 0)
+    except (TypeError, ValueError): return a == b
+
+def _refresh_group_angles(conn, pid):
+    shots = [dict(r) for r in conn.execute(
+        "SELECT * FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (pid,)).fetchall()]
+    stats = compute_stats(shots) if shots else None
+    if not stats or not stats["num_shots"]:
+        return
+    perf = conn.execute("SELECT distance, distance_unit, group_unit FROM performance WHERE id=?", (pid,)).fetchone()
+    dist_yd = float(perf["distance"]) if perf["distance"] else None
+    if dist_yd and perf["distance_unit"] == "m":
+        dist_yd *= 1.09361
+    unit = perf["group_unit"] or "MOA"
+    conn.execute(
+        "UPDATE performance SET group_size=?, group_x=?, group_y=? WHERE id=?",
+        (mm_to_angular(stats["group_size_mm"], dist_yd, unit),
+         mm_to_angular(stats["group_x_mm"], dist_yd, unit),
+         mm_to_angular(stats["group_y_mm"], dist_yd, unit), pid))
 
 @app.route("/api/performance/<int:pid>", methods=["DELETE"])
 def delete_performance(pid):
@@ -901,38 +952,117 @@ def delete_perf_shots(pid):
     return jsonify({"ok": True})
 
 
-@app.route("/api/performance/recalculate", methods=["POST"])
-def recalculate_performance():
+# ── Chronograph (Garmin CSV) → muzzle velocity ────────────────
+def parse_garmin_csv(text):
+    """Parse a Garmin Xero session export into shots (speeds stored as fps)."""
+    rows = [[c.strip() for c in r] for r in csv.reader(io.StringIO(text.lstrip("﻿")), skipinitialspace=True)]
+    title = rows[0][0] if rows and rows[0] else ""
+    head_i = next((i for i, r in enumerate(rows) if r and r[0] == "#"), None)
+    if head_i is None:
+        raise ValueError("This doesn't look like a Garmin chronograph export")
+
+    cols, to_fps = {}, 1.0
+    for j, h in enumerate(rows[head_i]):
+        h = h.upper()
+        if h.startswith("SPEED"):
+            cols["speed"] = j
+            if "M/S" in h or "MPS" in h: to_fps = 3.28084
+        elif h.startswith("KE"):            cols["ke"] = j
+        elif h.startswith("POWER FACTOR"):  cols["pf"] = j
+        elif h == "TIME":                   cols["time"] = j
+        elif h == "CLEAN BORE":             cols["clean"] = j
+        elif h == "COLD BORE":              cols["cold"] = j
+        elif h == "SHOT NOTES":             cols["notes"] = j
+    if "speed" not in cols:
+        raise ValueError("No speed column found in this file")
+
+    def cell(r, key):
+        j = cols.get(key)
+        return r[j] if j is not None and j < len(r) else ""
+    def flag(v): return v.lower() not in ("", "0", "no", "false", "-")
+    def num(v):
+        f = _to_float(v)
+        return f if f else None
+
+    shots = []
+    for r in rows[head_i + 1:]:
+        if not r or not r[0].isdigit():
+            break
+        speed = _to_float(cell(r, "speed")) * to_fps
+        if speed <= 0:
+            continue
+        shots.append({
+            "idx": int(r[0]), "speed_fps": round(speed, 1), "time": cell(r, "time"),
+            "clean_bore": flag(cell(r, "clean")), "cold_bore": flag(cell(r, "cold")),
+            "notes": cell(r, "notes"), "ke": num(cell(r, "ke")), "power_factor": num(cell(r, "pf")),
+        })
+    if not shots:
+        raise ValueError("No shots found in this file")
+
+    date = None
+    for r in rows:
+        if r and r[0].upper() == "DATE" and len(r) > 1:
+            try: date = datetime.datetime.strptime(r[1], "%B %d, %Y at %H:%M").date().isoformat()
+            except ValueError: pass
+    return {"title": title, "date": date, "shots": shots}
+
+def _update_muzzle_stats(conn, pid):
+    shots = [{"v_fps": r["speed_fps"]} for r in conn.execute(
+        "SELECT speed_fps FROM chrono_shots WHERE performance_id=? ORDER BY idx", (pid,)).fetchall()]
+    stats = compute_stats(shots)
+    conn.execute(
+        "UPDATE performance SET muzzle_avg_velocity=?, muzzle_std_dev=?, muzzle_extreme_spread=? WHERE id=?",
+        (stats["avg_velocity"], stats["std_dev"], stats["extreme_spread"], pid))
+    return stats
+
+@app.route("/api/chrono/upload", methods=["POST"])
+def chrono_upload():
+    """Read a Garmin CSV and return its shots (no DB write)."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file"}), 400
+    try:
+        return jsonify(parse_garmin_csv(f.read().decode("utf-8-sig", errors="replace")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/api/performance/<int:pid>/chrono", methods=["GET"])
+def get_perf_chrono(pid):
     conn = get_db()
-    perf_ids = [r["performance_id"] for r in conn.execute(
-        "SELECT DISTINCT performance_id FROM shotmarker_shots"
-    ).fetchall()]
-    updated = 0
-    for pid in perf_ids:
-        shots = [dict(r) for r in conn.execute(
-            "SELECT * FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (pid,)
-        ).fetchall()]
-        if not shots: continue
-        stats = compute_stats(shots)
-        if not stats["num_shots"]: continue
-        perf = conn.execute(
-            "SELECT distance, distance_unit, group_unit FROM performance WHERE id=?", (pid,)
-        ).fetchone()
-        dist_yd = float(perf["distance"]) if perf and perf["distance"] else None
-        if perf and perf["distance_unit"] == "m" and dist_yd:
-            dist_yd = dist_yd * 1.09361
-        grp_unit = perf["group_unit"] if perf else "MOA"
-        group_size = mm_to_angular(stats["group_size_mm"], dist_yd, grp_unit)
-        group_x    = mm_to_angular(stats["group_x_mm"],   dist_yd, grp_unit)
-        group_y    = mm_to_angular(stats["group_y_mm"],   dist_yd, grp_unit)
-        conn.execute("""UPDATE performance SET
-            num_shots=?, avg_velocity=?, std_dev=?, extreme_spread=?,
-            group_size=?, group_x=?, group_y=? WHERE id=?""",
-            [stats["num_shots"], stats["avg_velocity"], stats["std_dev"],
-             stats["extreme_spread"], group_size, group_x, group_y, pid])
-        updated += 1
-    conn.commit(); conn.close()
-    return jsonify({"ok": True, "updated": updated})
+    rows = conn.execute("SELECT * FROM chrono_shots WHERE performance_id=? ORDER BY idx", (pid,)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/performance/<int:pid>/chrono", methods=["POST"])
+def save_perf_chrono(pid):
+    """Replace a session's chronograph shots and recompute its muzzle velocity stats."""
+    shots = [s for s in (request.json or {}).get("shots", []) if _to_float(s.get("speed_fps")) > 0]
+    conn = get_db()
+    if not conn.execute("SELECT id FROM performance WHERE id=?", (pid,)).fetchone():
+        conn.close()
+        return jsonify({"error": "Performance record not found"}), 404
+    conn.execute("DELETE FROM chrono_shots WHERE performance_id=?", (pid,))
+    for n, s in enumerate(shots, 1):
+        conn.execute(
+            """INSERT INTO chrono_shots (performance_id, idx, speed_fps, time, clean_bore, cold_bore,
+                                         notes, ke, power_factor, sm_idx)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (pid, s.get("idx") or n, _to_float(s["speed_fps"]), s.get("time"),
+             1 if s.get("clean_bore") else 0, 1 if s.get("cold_bore") else 0,
+             s.get("notes"), s.get("ke"), s.get("power_factor"), s.get("sm_idx")))
+    stats = _update_muzzle_stats(conn, pid)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "stats": stats})
+
+@app.route("/api/performance/<int:pid>/chrono", methods=["DELETE"])
+def delete_perf_chrono(pid):
+    conn = get_db()
+    conn.execute("DELETE FROM chrono_shots WHERE performance_id=?", (pid,))
+    _update_muzzle_stats(conn, pid)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 init_db()
 if __name__ == "__main__":

@@ -515,7 +515,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     <!-- Performance settings -->
     <div class="settings-card">
       <h3><span class="mi ms">target</span>Performance Data</h3>
-      <div class="settings-grid" style="margin-bottom:14px">
+      <div class="settings-grid">
         <div style="display:flex;flex-direction:column;gap:4px">
           <div class="fl">Velocity / Speed</div>
           <div class="unit-toggle" id="perf-speed-toggle">
@@ -530,15 +530,6 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
             <button id="pu-mil" onclick="setPerfUnit('angle','mil')">mil</button>
           </div>
         </div>
-      </div>
-      <div class="toggle-row" style="border-top:1px solid var(--olv);padding-top:12px;border-bottom:none">
-        <div>
-          <div class="toggle-label">Recalculate stats from shots</div>
-          <div class="toggle-sub">Recomputes velocity stats and group sizes for every performance record that has ShotMarker data stored.</div>
-        </div>
-        <button class="btn btn-tonal btn-sm" onclick="recalculatePerformance()">
-          <span class="mi material-icons-round">refresh</span>Recalculate
-        </button>
       </div>
     </div>
 
@@ -798,6 +789,23 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     </button>
   </div>
 
+  <!-- Chronograph (Garmin CSV) import strip -->
+  <div style="padding:10px 16px;border-bottom:1px solid var(--olv);background:var(--sfv);display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:20px">speed</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500">Muzzle velocity from chronograph</div>
+      <div style="font-size:11px;color:var(--osv)" id="pf-ch-status">Optional: upload a Garmin CSV</div>
+    </div>
+    <label class="btn btn-tonal btn-sm" style="cursor:pointer;margin:0">
+      <span class="mi material-icons-round">upload_file</span>
+      <span id="pf-ch-btn-text">Choose CSV…</span>
+      <input type="file" accept=".csv,text/csv" id="pf-ch-file" style="display:none" onchange="pfImportChrono(event)">
+    </label>
+    <button class="btn btn-text btn-sm" id="pf-ch-clear" style="display:none" onclick="pfClearChrono()">
+      <span class="mi material-icons-round">close</span>Clear
+    </button>
+  </div>
+
   <!-- Everything below header scrolls as one region -->
   <div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
 
@@ -831,6 +839,19 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       </div>
     </div>
 
+    <!-- Chronograph shot selector (shown after a Garmin CSV is read) -->
+    <div id="pf-ch-selector" style="display:none;padding:10px 16px;border-bottom:1px solid var(--olv)">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:500;color:var(--os)">Chronograph shots</span>
+        <span id="pf-ch-count" style="font-size:11px;color:var(--osv)"></span>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfChronoSelAll(true)">All</button>
+          <button class="btn btn-tonal btn-sm" style="padding:4px 8px;font-size:11px" onclick="pfChronoSelAll(false)">None</button>
+        </div>
+      </div>
+      <div id="pf-ch-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:2px;max-height:30vh;overflow-y:auto"></div>
+    </div>
+
     <!-- Form fields -->
     <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="field"><input class="finput" id="pf-lot" placeholder=" " list="dl-perf-lot"><label class="flabel">Lot Number</label><datalist id="dl-perf-lot"></datalist></div>
@@ -858,7 +879,11 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
         <select class="fselect" id="pf-dist-unit"><option value="yd">yards</option><option value="m">meters</option></select>
         <label class="flabel">Unit</label>
       </div>
-      <div class="f-section">Velocity (fps) — auto-filled from ShotMarker</div>
+      <div class="f-section">Muzzle velocity (fps) — auto-filled from a chronograph CSV; or enter manually</div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-mvel" placeholder=" "><label class="flabel">Muzzle Average</label></div>
+      <div class="field"><input class="finput" type="number" step=".1" id="pf-msd" placeholder=" "><label class="flabel">Muzzle Std Deviation</label></div>
+      <div class="field f-full"><input class="finput" type="number" step=".1" id="pf-mes" placeholder=" "><label class="flabel">Muzzle Extreme Spread (fps)</label></div>
+      <div class="f-section">Target velocity (fps) — auto-filled from ShotMarker</div>
       <div class="field"><input class="finput" type="number" step=".1" id="pf-vel" placeholder=" "><label class="flabel">Average Velocity</label></div>
       <div class="field"><input class="finput" type="number" step=".1" id="pf-sd" placeholder=" "><label class="flabel">Std Deviation</label></div>
       <div class="field f-full"><input class="finput" type="number" step=".1" id="pf-es" placeholder=" "><label class="flabel">Extreme Spread (fps)</label></div>
@@ -880,6 +905,24 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     <button class="btn btn-filled" id="pf-save-btn" onclick="savePerformance()">
       <span class="mi material-icons-round">save</span><span id="pf-save-text">Save Session</span>
     </button>
+  </div>
+</div>
+</div>
+
+<!-- Chronograph / ShotMarker alignment prompt -->
+<div class="overlay modal-sm" id="chrono-align-overlay">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round" style="color:var(--warn)">warning</span></div>
+    <div class="mtitle">Shot counts don't match</div>
+    <button class="icon-btn" onclick="chronoAlignAnswer(null)"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody single-col" id="chrono-align-body"></div>
+  <div class="mfooter" style="flex-wrap:wrap;gap:8px">
+    <button class="btn btn-tonal" onclick="chronoAlignAnswer(null)">Cancel</button>
+    <button class="btn btn-tonal" onclick="chronoAlignAnswer('start')">Align start</button>
+    <button class="btn btn-tonal" onclick="chronoAlignAnswer('end')">Align end</button>
+    <button class="btn btn-filled" id="chrono-align-best" onclick="chronoAlignAnswer('best')"><span class="mi material-icons-round">auto_fix_high</span>Best match</button>
   </div>
 </div>
 </div>
@@ -1821,9 +1864,12 @@ const PERF_COLS=[
   {key:'firearm_name',label:'Firearm',cell:r=>r.firearm_name||'—'},
   {key:'date',label:'Date',num:true,cell:r=>r.date||'—'},
   {key:'distance',label:'Distance',num:true,cell:r=>r.distance?r.distance+' '+r.distance_unit:'—'},
-  {key:'avg_velocity',label:'Avg Vel',num:true,cell:r=>r.avg_velocity?fmtVel(r.avg_velocity):'—'},
-  {key:'std_dev',label:'SD',num:true,cell:r=>r.std_dev?fmtVel(r.std_dev):'—'},
-  {key:'extreme_spread',label:'Vel ES',num:true,cell:r=>r.extreme_spread?fmtVel(r.extreme_spread):'—'},
+  {key:'muzzle_avg_velocity',label:'Muzzle Avg',num:true,cell:r=>r.muzzle_avg_velocity?fmtVel(r.muzzle_avg_velocity):'—'},
+  {key:'muzzle_std_dev',label:'Muzzle SD',num:true,cell:r=>r.muzzle_std_dev?fmtVel(r.muzzle_std_dev):'—'},
+  {key:'muzzle_extreme_spread',label:'Muzzle ES',num:true,cell:r=>r.muzzle_extreme_spread?fmtVel(r.muzzle_extreme_spread):'—'},
+  {key:'avg_velocity',label:'Target Avg',num:true,cell:r=>r.avg_velocity?fmtVel(r.avg_velocity):'—'},
+  {key:'std_dev',label:'Target SD',num:true,cell:r=>r.std_dev?fmtVel(r.std_dev):'—'},
+  {key:'extreme_spread',label:'Target ES',num:true,cell:r=>r.extreme_spread?fmtVel(r.extreme_spread):'—'},
   {key:'group_size',label:'Group',num:true,cell:r=>r.group_size?r.group_size+' '+r.group_unit:'—'},
   {key:'group_x',label:'Grp X',num:true,cell:r=>r.group_x?r.group_x+' '+r.group_unit:'—'},
   {key:'group_y',label:'Grp Y',num:true,cell:r=>r.group_y?r.group_y+' '+r.group_unit:'—'},
@@ -1832,8 +1878,8 @@ const PERF_COLS=[
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
 ];
 const PERF_COL_DEFAULTS={
-  wide:['lot_number','firearm_name','date','distance','avg_velocity','std_dev','extreme_spread','group_size','group_x','group_y','num_shots','position'],
-  narrow:['lot_number','firearm_name','distance','avg_velocity','std_dev','group_size'],
+  wide:['lot_number','firearm_name','date','distance','muzzle_avg_velocity','muzzle_std_dev','muzzle_extreme_spread','avg_velocity','std_dev','extreme_spread','group_size','group_x','group_y','num_shots','position'],
+  narrow:['lot_number','firearm_name','distance','muzzle_avg_velocity','avg_velocity','std_dev','group_size'],
 };
 let lastPerfRows=[];
 COL_TABLES.perf={defs:PERF_COLS,defaults:PERF_COL_DEFAULTS,redraw:()=>{buildPerfHead();if(lastPerfRows.length) renderPerf(lastPerfRows);}};
@@ -1913,6 +1959,7 @@ function pfResetSmUI(){
   if(_mi2) _mi2.style.maxWidth='';
   pfCanvasCtrl=null;
   document.getElementById('pf-sm-file').value='';
+  if(pfChrono){ pfChronoAlign=null; pfChronoPlan=null; pfChronoPair(); pfChronoSel=new Set(pfChrono.shots.map((_,i)=>i)); pfChronoBuildList(); pfChronoRefresh(); }
 }
 
 function pfClearShotMarker(){
@@ -1990,6 +2037,7 @@ function pfApplySession(session){
   setTimeout(()=>pfInitShotCanvas(), 80);
   document.getElementById('pf-sm-status').innerHTML=
     `<span style="color:var(--ok)">✓ ${session.name||'Session'} loaded — select shots below</span>`;
+  if(pfChrono) pfChronoCheck().then(ok=>{ if(!ok) pfClearChrono(); });
 }
 
 function pfBuildShotList(){
@@ -2146,8 +2194,292 @@ function pfUpdateFromSelection(){
   if(statsEl) statsEl.innerHTML=statsHtml;
 }
 
+// ── Chronograph (Garmin CSV) → muzzle velocity ───────────────────
+let pfChrono=null, pfChronoSel=new Set(), pfChronoLinked=0, pfChronoRemove=false;
+// How chronograph shots pair with the ShotMarker string: map[i] = ShotMarker shot position or null,
+// outside = chronograph shots that fall outside the string and are left out.
+let pfChronoAlign=null, pfChronoPlan=null;   // align: 'start' | 'end' | 'best'
+
+function pfSetMuzzleFields(avg,sd,es){
+  document.getElementById('pf-mvel').value=avg??'';
+  document.getElementById('pf-msd').value=sd??'';
+  document.getElementById('pf-mes').value=es??'';
+}
+
+function pfResetChrono(){
+  pfChrono=null; pfChronoSel=new Set(); pfChronoLinked=0; pfChronoRemove=false; pfChronoAlign=null;
+  pfSetMuzzleFields('','','');
+  document.getElementById('pf-ch-file').value='';
+  pfChronoRefresh();
+}
+
+// Apply the pairing plan to the chronograph shots (or clear it if there is no ShotMarker string).
+function pfChronoPair(){
+  const c=pfChrono.shots;
+  c.forEach(s=>{s.sm_idx=null; s.unpaired=false;});
+  const sm=pfSmSelected?pfSmSelected.shots:[];
+  if(!sm.length||!pfChronoPlan) return;
+  c.forEach((s,i)=>{
+    const j=pfChronoPlan.map[i];
+    if(j!=null) s.sm_idx=sm[j].idx;
+    if(pfChronoPlan.outside.has(i)) s.unpaired=true;
+  });
+}
+
+// Plan for a contiguous alignment: the shorter string sits inside the longer one at `off`.
+function pfPlanFromOffset(off){
+  const nc=pfChrono.shots.length, ns=pfSmSelected.shots.length;
+  const map=Array(nc).fill(null), outside=new Set();
+  for(let i=0;i<nc;i++){
+    const k=nc<=ns?i+off:i-off;
+    if(k>=0&&k<ns) map[i]=k; else outside.add(i);
+  }
+  return {map,outside};
+}
+
+// Match by shot timing. ShotMarker's ts is in milliseconds; Garmin gives time of day. The two
+// clocks differ by an unknown constant (timezone, clock error, bullet flight time), so find the
+// offset that lines up the most shots, then pair shots that agree within a few seconds. Unlike a
+// start/end shift this also copes with shots one device missed in the middle.
+function hmsToSec(t){ const m=/^(\d+):(\d+):(\d+)/.exec(t||''); return m?(+m[1])*3600+(+m[2])*60+(+m[3]):null; }
+function pfChronoTimeMatch(){
+  const TOL=2, DAY=86400;
+  const sm=pfSmSelected.shots, c=pfChrono.shots;
+  let prev=null, wrap=0;
+  const tg=c.map(s=>{
+    let v=hmsToSec(s.time); if(v==null) return null;
+    v+=wrap; if(prev!=null&&v<prev){ wrap+=DAY; v+=DAY; } prev=v; return v;
+  });
+  const ts=sm.map(s=>s.ts!=null?s.ts/1000:null);
+  if(tg.some(v=>v==null)||ts.filter(v=>v!=null).length<3) return null;
+  const mod=x=>((x%DAY)+DAY)%DAY;
+  const circ=(a,b)=>{ const d=Math.abs(a-b)%DAY; return Math.min(d,DAY-d); };
+
+  const matchAt=d=>{
+    const cand=[];
+    for(let i=0;i<tg.length;i++) for(let j=0;j<ts.length;j++){
+      if(ts[j]==null) continue;
+      const res=circ(mod(tg[i]-ts[j]),d);
+      if(res<=TOL) cand.push([i,j,res]);
+    }
+    cand.sort((a,b)=>a[2]-b[2]);
+    const usedI=new Set(), usedJ=new Set(), pairs=[];
+    cand.forEach(([i,j,res])=>{ if(!usedI.has(i)&&!usedJ.has(j)){ usedI.add(i); usedJ.add(j); pairs.push([i,j,res]); } });
+    return {pairs, ambiguous:tg.filter((_,i)=>cand.filter(x=>x[0]===i).length>1).length};
+  };
+
+  const seen=new Set(), scored=[];
+  for(let i=0;i<tg.length;i++) for(let j=0;j<ts.length;j++){
+    if(ts[j]==null) continue;
+    const d=mod(tg[i]-ts[j]), key=Math.round(d*2);
+    if(seen.has(key)) continue; seen.add(key);
+    const m=matchAt(d);
+    scored.push({d, n:m.pairs.length, res:m.pairs.reduce((a,p)=>a+p[2],0)/(m.pairs.length||1), m});
+  }
+  scored.sort((a,b)=>b.n-a.n||a.res-b.res);
+  const best=scored[0];
+  if(!best||best.n<3) return null;
+  const rival=scored.find(x=>circ(x.d,best.d)>2*TOL);
+
+  const map=Array(c.length).fill(null);
+  best.m.pairs.forEach(([i,j])=>{ map[i]=j; });
+  // Unmatched chronograph shots inside the matched time span are real shots ShotMarker dropped
+  // (e.g. off-target); ones outside it belong to something else (a warm-up, another string).
+  const matchedT=best.m.pairs.map(p=>tg[p[0]]);
+  const lo=Math.min(...matchedT)-TOL, hi=Math.max(...matchedT)+TOL;
+  const outside=new Set(), insideUnmatched=[];
+  map.forEach((j,i)=>{ if(j==null){ if(tg[i]<lo||tg[i]>hi) outside.add(i); else insideUnmatched.push(i); } });
+  const denom=Math.min(c.length,ts.filter(v=>v!=null).length);
+  // Strong = most shots matched, few near-duplicates, and clearly better than the best coincidental offset.
+  const strong=best.n>=3 && best.n/denom>=0.8 && best.m.ambiguous<=0.2*c.length
+    && (!rival||best.n-rival.n>=Math.max(3,0.3*best.n));
+  return {plan:{map,outside}, matched:best.n, insideUnmatched:insideUnmatched.length, outside:outside.size, strong};
+}
+
+// Pick the suggestion: timing if it is convincing, otherwise velocity if that is, otherwise
+// whichever exists (flagged weak).
+function pfChronoRecommend(vel,tm){
+  if(tm&&(tm.strong||!vel||vel.weak)) return {source:'timing',plan:tm.plan,weak:!tm.strong};
+  if(vel) return {source:'velocity',plan:pfPlanFromOffset(vel.offset),weak:vel.weak};
+  return null;
+}
+
+function pearson(xs,ys){
+  const n=xs.length;
+  const mx=xs.reduce((a,v)=>a+v,0)/n, my=ys.reduce((a,v)=>a+v,0)/n;
+  let sxy=0,sxx=0,syy=0;
+  for(let i=0;i<n;i++){ sxy+=(xs[i]-mx)*(ys[i]-my); sxx+=(xs[i]-mx)**2; syy+=(ys[i]-my)**2; }
+  return sxx&&syy?sxy/Math.sqrt(sxx*syy):null;
+}
+
+// Try every way the shorter string can sit inside the longer one and pick the shift where
+// the muzzle and target velocity patterns line up best (needs at least 3 shots with both).
+function pfChronoBestOffset(){
+  const c=pfChrono.shots.map(s=>s.speed_fps), sm=pfSmSelected.shots.map(s=>s.v_fps);
+  const nc=c.length, ns=sm.length, len=Math.min(nc,ns), results=[];
+  for(let o=0;o<=Math.abs(nc-ns);o++){
+    const xs=[], ys=[];
+    for(let k=0;k<len;k++){
+      const cv=nc>ns?c[o+k]:c[k], sv=nc>ns?sm[k]:sm[o+k];
+      if(cv!=null&&sv!=null){ xs.push(cv); ys.push(sv); }
+    }
+    const r=xs.length>=3?pearson(xs,ys):null;
+    if(r!=null) results.push({offset:o,r});
+  }
+  if(!results.length) return null;
+  results.sort((a,b)=>b.r-a.r);
+  const best=results[0], next=results[1];
+  return {offset:best.offset, r:best.r, weak:best.r<0.5||(next&&best.r-next.r<0.1)};
+}
+
+let chronoAlignResolve=null;
+function askChronoAlign(nc,ns,ev){
+  const {vel,tm,rec}=ev;
+  const how=nc>ns
+    ?`<strong>Align start</strong> keeps the first ${ns} chronograph shots; <strong>Align end</strong> keeps the last ${ns}.`
+    :`<strong>Align start</strong> pairs them with the first ${nc} ShotMarker shots; <strong>Align end</strong> pairs them with the last ${nc}.`;
+  const weak=' — <span style="color:var(--warn)">weak, please check</span>';
+  const lines=[];
+  if(tm){
+    const extra=[
+      tm.outside?`${tm.outside} chronograph shot${tm.outside===1?'':'s'} outside the string left out`:'',
+      tm.insideUnmatched?`${tm.insideUnmatched} inside it with no ShotMarker match (kept)`:'',
+    ].filter(Boolean).join('; ');
+    lines.push(`<strong>Timing:</strong> ${tm.matched} of ${ns} ShotMarker shots matched${extra?'; '+extra:''}${tm.strong?'':weak}.`);
+  }
+  if(vel) lines.push(`<strong>Velocity pattern:</strong> shifted by ${vel.offset} shot${vel.offset===1?'':'s'} (correlation ${vel.r.toFixed(2)})${vel.weak?weak:''}.`);
+  if(tm&&tm.strong&&vel&&!vel.weak&&JSON.stringify(tm.plan.map)!==JSON.stringify(pfPlanFromOffset(vel.offset).map))
+    lines.push(`<span style="color:var(--warn)">The two methods disagree — Best match uses timing.</span>`);
+  const hint=rec
+    ?`<div style="font-size:13px;margin:8px 0;padding:8px 10px;border-radius:var(--rsm);background:var(--sfv);display:flex;flex-direction:column;gap:4px">${lines.join('')?lines.map(l=>`<div>${l}</div>`).join(''):''}</div>`
+    :`<div style="font-size:12px;color:var(--osv);margin:8px 0">Not enough timing or velocity data in both files to suggest a match.</div>`;
+  document.getElementById('chrono-align-best').style.display=rec?'':'none';
+  document.getElementById('chrono-align-body').innerHTML=`
+    <div class="alert alert-warn" style="margin-bottom:8px">
+      <span class="mi material-icons-round">warning</span>
+      <div>The chronograph file has <strong>${nc}</strong> shots but the ShotMarker string has <strong>${ns}</strong>.</div>
+    </div>
+    ${hint}
+    <div style="font-size:13px;color:var(--osv)">${how} Cancel discards the chronograph file.</div>`;
+  openModal('chrono-align-overlay');
+  return new Promise(res=>{chronoAlignResolve=res;});
+}
+function chronoAlignAnswer(v){
+  closeModal('chrono-align-overlay');
+  const r=chronoAlignResolve; chronoAlignResolve=null;
+  if(r) r(v);
+}
+
+// Resolves false if the user cancelled the alignment prompt.
+async function pfChronoCheck(){
+  if(!pfChrono) return true;
+  const nc=pfChrono.shots.length, ns=pfSmSelected?pfSmSelected.shots.length:0;
+  pfChronoAlign=null; pfChronoPlan=null;
+  if(ns){
+    if(nc!==ns){
+      const vel=pfChronoBestOffset(), tm=pfChronoTimeMatch();
+      const rec=pfChronoRecommend(vel,tm);
+      const choice=await askChronoAlign(nc,ns,{vel,tm,rec});
+      if(!choice) return false;
+      pfChronoAlign=choice;
+      pfChronoPlan=choice==='best'?rec.plan:pfPlanFromOffset(choice==='end'?Math.abs(nc-ns):0);
+      if(choice==='best') pfChronoAlign='best match by '+rec.source;
+    }else{
+      pfChronoPlan=pfPlanFromOffset(0);
+    }
+  }
+  pfChronoPair();
+  pfChronoSel=new Set(pfChrono.shots.map((s,i)=>i).filter(i=>!pfChrono.shots[i].unpaired));
+  pfChronoBuildList(); pfChronoRefresh();
+  return true;
+}
+
+async function pfImportChrono(event){
+  const file=event.target.files[0]; if(!file) return;
+  document.getElementById('pf-ch-status').textContent='Reading…';
+  try{
+    const form=new FormData(); form.append('file',file);
+    const r=await fetch('/api/chrono/upload',{method:'POST',body:form});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error||'Could not read this file');
+    pfChrono=d; pfChronoRemove=false;
+    if(d.date&&!document.getElementById('pf-date').value) document.getElementById('pf-date').value=d.date;
+    if(!(await pfChronoCheck())) pfClearChrono();
+  }catch(e){ snack(e.message,'err'); pfChronoRefresh(); }
+  event.target.value='';
+}
+
+function pfClearChrono(){
+  if(pfChrono){
+    pfChrono=null; pfChronoSel=new Set(); pfChronoAlign=null;
+    const row=perfEditId?allPerf.find(p=>p.id===perfEditId):null;
+    pfSetMuzzleFields(row?.muzzle_avg_velocity,row?.muzzle_std_dev,row?.muzzle_extreme_spread);
+  }else if(pfChronoLinked>0){
+    pfChronoRemove=true;
+    pfSetMuzzleFields('','','');
+  }
+  document.getElementById('pf-ch-file').value='';
+  pfChronoRefresh();
+}
+
+function pfChronoSelAll(on){
+  if(!pfChrono) return;
+  pfChronoSel=on?new Set(pfChrono.shots.map((s,i)=>i).filter(i=>!pfChrono.shots[i].unpaired)):new Set();
+  pfChronoBuildList(); pfChronoRefresh();
+}
+
+function pfChronoBuildList(){
+  const wrap=document.getElementById('pf-ch-list'); wrap.innerHTML='';
+  if(!pfChrono) return;
+  const smLabel=idx=>{ const s=pfSmSelected?.shots.find(x=>x.idx===idx); return s?(s.label||idx+1)+(s.sighter?' (sighter)':''):idx+1; };
+  pfChrono.shots.forEach((s,i)=>{
+    const row=document.createElement('label');
+    row.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;border-radius:4px;cursor:'+(s.unpaired?'default;opacity:.45':'pointer');
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.checked=pfChronoSel.has(i); cb.disabled=!!s.unpaired;
+    cb.style.cssText='accent-color:var(--p);flex-shrink:0';
+    cb.onchange=()=>{ if(cb.checked) pfChronoSel.add(i); else pfChronoSel.delete(i); pfChronoRefresh(); };
+    const extra=[
+      s.cold_bore?'cold bore':'', s.clean_bore?'clean bore':'',
+      s.sm_idx!=null?'↔ '+smLabel(s.sm_idx):'', s.unpaired?'not in ShotMarker string':'',
+      pfSmSelected&&s.sm_idx==null&&!s.unpaired?'no ShotMarker match':'',
+    ].filter(Boolean).join(' · ');
+    const t=document.createElement('span');
+    t.innerHTML=`<b>#${s.idx}</b> ${fmtVel(s.speed_fps)}${s.time?' · '+s.time:''}${extra?` <span style="color:var(--osv)">· ${extra}</span>`:''}`;
+    row.append(cb,t);
+    wrap.appendChild(row);
+  });
+}
+
+function pfChronoRefresh(){
+  const st=document.getElementById('pf-ch-status');
+  const btn=document.getElementById('pf-ch-btn-text');
+  const clr=document.getElementById('pf-ch-clear');
+  const selector=document.getElementById('pf-ch-selector');
+  if(pfChrono){
+    const speeds=pfChrono.shots.filter((_,i)=>pfChronoSel.has(i)).map(s=>s.speed_fps);
+    const n=speeds.length;
+    if(n){
+      const avg=speeds.reduce((a,v)=>a+v,0)/n;
+      const sd=Math.sqrt(speeds.reduce((a,v)=>a+(v-avg)**2,0)/n);
+      pfSetMuzzleFields(avg.toFixed(1),sd.toFixed(1),(Math.max(...speeds)-Math.min(...speeds)).toFixed(1));
+    }else pfSetMuzzleFields('','','');
+    document.getElementById('pf-ch-count').textContent=`${n} of ${pfChrono.shots.length} selected`;
+    st.innerHTML=`<span style="color:var(--ok)">✓ ${escHtml(pfChrono.title||'Garmin CSV')} · ${pfChrono.shots.length} shots read${pfChronoAlign?` · aligned to ShotMarker (${pfChronoAlign})`:''}</span>`;
+    btn.textContent='Replace CSV…'; clr.style.display=''; selector.style.display='';
+  }else{
+    selector.style.display='none';
+    const linked=pfChronoLinked>0&&!pfChronoRemove;
+    st.textContent=pfChronoRemove?'Chronograph data will be removed when you save'
+      :linked?`${pfChronoLinked} chronograph shots linked`:'Optional: upload a Garmin CSV';
+    btn.textContent=linked?'Replace CSV…':'Choose CSV…';
+    clr.style.display=linked?'':'none';
+  }
+}
+
 function openPerfModal(prefillLot){
   perfEditId=null;
+  pfResetChrono();
   pfResetSmUI();
   document.getElementById('perf-modal-title').textContent='Add Performance Session';
   document.getElementById('pf-save-text').textContent='Save Session';
@@ -2163,6 +2495,8 @@ function openPerfModal(prefillLot){
 function editPerformance(id){
   const row=allPerf.find(p=>p.id===id);if(!row) return;
   perfEditId=id;
+  pfResetChrono();
+  pfResetSmUI();
   document.getElementById('perf-modal-title').textContent='Edit Performance Session';
   document.getElementById('pf-save-text').textContent='Save Changes';
   document.getElementById('pf-lot').value=row.lot_number||'';
@@ -2180,6 +2514,11 @@ function editPerformance(id){
   document.getElementById('pf-group-unit').value=row.group_unit||'MOA';
   document.getElementById('pf-position').value=row.position||'';
   document.getElementById('pf-notes').value=row.notes||'';
+  pfSetMuzzleFields(row.muzzle_avg_velocity,row.muzzle_std_dev,row.muzzle_extreme_spread);
+  api('GET',`/api/performance/${id}/chrono`).then(shots=>{
+    if(perfEditId!==id) return;
+    pfChronoLinked=shots.length; pfChronoRefresh();
+  }).catch(()=>{});
   openModal('perf-overlay');
 }
 
@@ -2199,6 +2538,9 @@ async function savePerformance(){
     group_y:document.getElementById('pf-group-y').value,
     group_unit:document.getElementById('pf-group-unit').value,
     position:document.getElementById('pf-position').value,
+    muzzle_avg_velocity:document.getElementById('pf-mvel').value,
+    muzzle_std_dev:document.getElementById('pf-msd').value,
+    muzzle_extreme_spread:document.getElementById('pf-mes').value,
     notes:document.getElementById('pf-notes').value,
   };
   document.getElementById('pf-save-btn').disabled=true;
@@ -2218,6 +2560,13 @@ async function savePerformance(){
         bullet_d_mm:pfSmSelected.bullet_d_mm,
       };
       await api('POST',`/api/performance/${pid}/shots`,payload);
+    }
+    // Chronograph (muzzle velocity) shots
+    if(pfChrono){
+      const shots=pfChrono.shots.filter((_,i)=>pfChronoSel.has(i));
+      await api('POST',`/api/performance/${saved.id}/chrono`,{shots});
+    }else if(pfChronoRemove){
+      await api('DELETE',`/api/performance/${saved.id}/chrono`);
     }
     snack(perfEditId?'Session updated':'Session added','ok');
     closeModal('perf-overlay');
@@ -2385,11 +2734,6 @@ function fmtVel(fps_val){
   const pu=perfUnits();
   if(pu.speed==='m/s') return (v/3.28084).toFixed(1)+' m/s';
   return v.toFixed(0)+' fps';
-}
-async function recalculatePerformance(){
-  await api('POST','/api/performance/recalculate');
-  await fetchPerformance();
-  snack('Stats recalculated','ok');
 }
 
 // ══════════════════════════════════════════════════════════════
