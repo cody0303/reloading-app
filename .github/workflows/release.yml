@@ -16,7 +16,7 @@ jobs:
       IMAGE: ghcr.io/cody0303/reloading-app
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Same tests as ci.yml, run in this job (no extra job to bill) so a failing tag publishes nothing
       - name: Run tests
@@ -36,21 +36,21 @@ jobs:
           sha256sum reloading-app_${{ steps.ver.outputs.num }}.tar | tee sha256.txt
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "reloading-app v${{ steps.ver.outputs.num }}"
           body_path: sha256.txt
           files: reloading-app_${{ steps.ver.outputs.num }}.tar
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
