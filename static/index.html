@@ -87,7 +87,7 @@ tbody tr:hover td{background:var(--sfv)}
 td.c-id{font-family:'Roboto Mono',monospace;font-size:11px;color:var(--ol)}
 td.c-num{font-family:'Roboto Mono',monospace}
 td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
-@media(min-width:701px){#loads-body td{white-space:nowrap}}
+@media(min-width:701px){#loads-body td,#perf-body td,#firearms-body td{white-space:nowrap}}
 .no-data{display:none;flex-direction:column;align-items:center;justify-content:center;padding:60px 24px;gap:10px;color:var(--osv)}
 .no-data .mi{font-size:48px;opacity:.2;color:var(--p)}
 .no-data p{font-size:14px;opacity:.55}
@@ -204,6 +204,10 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 .unit-toggle button.active{background:var(--p);color:white}
 .ms{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;font-size:24px;-webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
 .mi-svg{width:1em;height:1em;fill:currentColor;display:inline-block;vertical-align:middle;flex-shrink:0}
+.inv-filters{padding:0 12px 8px;display:flex;flex-direction:column;gap:8px}
+.inv-chip-row{display:flex;flex-wrap:wrap;gap:6px}
+.fchip{padding:4px 12px;border-radius:16px;border:1.5px solid var(--olv);background:var(--sf);color:var(--osv);font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap}
+.fchip.on{background:var(--p);color:var(--op);border-color:var(--p)}
 .col-picker{position:fixed;z-index:300;background:var(--sf);border:1px solid var(--olv);border-radius:var(--rsm);box-shadow:var(--s3);padding:10px 14px;min-width:210px;max-height:70vh;overflow:auto}
 .col-picker .cp-title{font-size:13px;font-weight:500;color:var(--os);margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;gap:16px}
 .col-picker .cp-title span{font-size:11px;font-weight:400;color:var(--osv)}
@@ -330,6 +334,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <button class="btn btn-filled btn-sm" onclick="openInvModal()"><span class="mi material-icons-round">add</span>Add Item</button>
     </div>
   </div>
+  <div class="inv-filters" id="inv-filters"></div>
   <div class="inv-grid" id="inv-grid"></div>
 </div>
 
@@ -347,9 +352,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   <div style="margin:0 12px 80px">
     <div class="card table-wrap">
       <table>
-        <thead><tr>
-          <th>Name</th><th>Caliber</th><th>Barrel Length</th><th>Twist Rate</th><th class="col-hide">Manufacturer</th><th></th>
-        </tr></thead>
+        <thead><tr id="firearms-head"></tr></thead>
         <tbody id="firearms-body"></tbody>
       </table>
       <div class="no-data" id="firearms-empty"><svg class="mi mi-svg"><use href="#i-rifle"/></svg><p>No firearms added yet</p></div>
@@ -377,21 +380,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   <div style="margin:12px;padding-bottom:80px">
     <div class="card table-wrap">
       <table>
-        <thead><tr>
-          <th onclick="perfSort('lot_number')">Lot #<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('firearm_name')">Firearm<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('date')" class="col-hide">Date<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('distance')">Distance<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('avg_velocity')">Avg Vel<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('std_dev')">SD<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('extreme_spread')" class="col-hide">Vel ES<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('group_size')">Group<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('group_x')" class="col-hide">Grp X<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('group_y')" class="col-hide">Grp Y<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('num_shots')" class="col-hide">Shots<span class="si material-icons-round">unfold_more</span></th>
-          <th onclick="perfSort('position')" class="col-hide">Position<span class="si material-icons-round">unfold_more</span></th>
-          <th></th>
-        </tr></thead>
+        <thead><tr id="perf-head"></tr></thead>
         <tbody id="perf-body"></tbody>
       </table>
       <div class="no-data" id="perf-empty"><span class="mi ms">target</span><p>No performance data yet</p></div>
@@ -1060,6 +1049,17 @@ COL_TABLES.loads={defs:LOAD_COLS,defaults:LOAD_COL_DEFAULTS,redraw:()=>{
   if(allLoads.length) renderLoads(allLoads);
 }};
 
+function escHtml(s){
+  return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function colPickerTh(table){
+  const th=document.createElement('th');
+  th.style.cssText='width:110px;text-align:right;cursor:default';
+  th.innerHTML=`<button class="icon-btn col-picker-btn" title="Choose columns" onclick="toggleColPicker(event,'${table}')"><span class="mi material-icons-round" style="font-size:20px">view_column</span></button>`;
+  return th;
+}
+
 let loadsSortTouched=false;
 function buildLoadsHead(){
   const tr=document.getElementById('loads-head');
@@ -1074,10 +1074,7 @@ function buildLoadsHead(){
     th.onclick=()=>sortLoads(col.key);
     tr.appendChild(th);
   });
-  const th=document.createElement('th');
-  th.style.cssText='width:110px;text-align:right';
-  th.innerHTML=`<button class="icon-btn col-picker-btn" title="Choose columns" onclick="toggleColPicker(event,'loads')"><span class="mi material-icons-round" style="font-size:20px">view_column</span></button>`;
-  tr.appendChild(th);
+  tr.appendChild(colPickerTh('loads'));
 }
 
 function sortLoads(key){
@@ -1311,8 +1308,7 @@ async function fetchAppSettings(){
     const s=await api('GET','/api/settings');
     labelKey=s.label_key||'';
     settingsCache=s;
-    COL_TABLES.loads.redraw();
-    if(allPerf.length) renderPerf(allPerf);
+    Object.values(COL_TABLES).forEach(t=>t.redraw());
   }catch(e){}
 }
 function printLabel(id){window.open(`/api/loads/${id}/label?key=${encodeURIComponent(labelKey)}`,'_blank')}
@@ -1328,10 +1324,65 @@ const CAT_META={
 };
 let allInventory=[];
 
+// ── Filter chips: category, then a second row that depends on the category ──
+let invFilter={cat:'',sub:''};
+const INV_CATS=[['','All'],['Brass/Cases','Brass'],['Bullets','Bullets'],['Powder','Powder'],['Primers','Primers']];
+const INV_USES=['Rifle','Pistol','Shotgun'];
+
+// Bullets/brass: caliber. Powder: primary use. Primers: type. The latter two live inside
+// the packed "a | b | c" caliber string, so find them by value, not position.
+function invSubValue(item){
+  const cal=(item.caliber||'').trim();
+  if(item.category==='Bullets'||item.category==='Brass/Cases') return cal;
+  return cal.split(' | ').map(s=>s.trim()).find(p=>INV_USES.includes(p))||'';
+}
+
+function invSubOptions(cat){
+  const seen=new Map();
+  allInventory.filter(i=>i.category===cat).forEach(i=>{
+    const v=invSubValue(i);
+    if(v&&!seen.has(v.toLowerCase())) seen.set(v.toLowerCase(),v);
+  });
+  const found=[...seen.values()];
+  if(cat==='Powder'||cat==='Primers'){
+    const base=['Rifle','Pistol'];
+    return [...base,...found.filter(v=>!base.includes(v)).sort()];
+  }
+  return found.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+}
+
+function invVisible(){
+  return allInventory.filter(i=>{
+    if(invFilter.cat&&i.category!==invFilter.cat) return false;
+    if(invFilter.sub&&invSubValue(i).toLowerCase()!==invFilter.sub.toLowerCase()) return false;
+    return true;
+  });
+}
+
+function renderInvFilters(){
+  const el=document.getElementById('inv-filters'); if(!el) return;
+  const opts=invFilter.cat?invSubOptions(invFilter.cat):[];
+  if(invFilter.sub&&!opts.some(o=>o.toLowerCase()===invFilter.sub.toLowerCase())) invFilter.sub='';
+  const chip=(label,on,attr,fn)=>`<button class="fchip${on?' on':''}" ${attr} onclick="${fn}">${label}</button>`;
+  let html=`<div class="inv-chip-row">${INV_CATS.map(([v,l])=>chip(l,invFilter.cat===v,`data-cat="${v}"`,'setInvCat(this.dataset.cat)')).join('')}</div>`;
+  if(invFilter.cat){
+    html+=`<div class="inv-chip-row">${chip('All',!invFilter.sub,'data-sub=""','setInvSub(this.dataset.sub)')}${
+      opts.map(o=>chip(escHtml(o),invFilter.sub.toLowerCase()===o.toLowerCase(),`data-sub="${escHtml(o)}"`,'setInvSub(this.dataset.sub)')).join('')}</div>`;
+  }
+  el.innerHTML=html;
+}
+
+function applyInvFilter(){
+  renderInvFilters();
+  renderInventory(invVisible());
+}
+function setInvCat(cat){ invFilter={cat,sub:''}; applyInvFilter(); }
+function setInvSub(sub){ invFilter.sub=sub; applyInvFilter(); }
+
 async function fetchInventory(){
   try{
     allInventory=await api('GET','/api/inventory');
-    renderInventory(allInventory);
+    applyInvFilter();
   }catch(e){snack('Error loading inventory','err')}
 }
 
@@ -1339,7 +1390,8 @@ function renderInventory(items){
   const grid=document.getElementById('inv-grid');
   grid.innerHTML='';
   if(!items.length){
-    grid.innerHTML='<div style="padding:40px;color:var(--osv);font-size:14px;opacity:.6">No inventory items yet. Click Add Item to get started.</div>';
+    const msg=allInventory.length?'No items match this filter.':'No inventory items yet. Click Add Item to get started.';
+    grid.innerHTML=`<div style="padding:40px;color:var(--osv);font-size:14px;opacity:.6">${msg}</div>`;
     return;
   }
   items.forEach(item=>{
@@ -1575,19 +1627,41 @@ async function fetchFirearms(){
   }catch(e){snack('Error loading firearms','err')}
 }
 
+const FIREARM_COLS=[
+  {key:'name',label:'Name',cell:r=>`<strong>${r.name}</strong>`},
+  {key:'caliber',label:'Caliber',cell:r=>r.caliber||'—'},
+  {key:'barrel_length',label:'Barrel Length',num:true,cell:r=>r.barrel_length?r.barrel_length+' '+r.barrel_length_unit:'—'},
+  {key:'twist_rate',label:'Twist Rate',cell:r=>fmtTwist(r)},
+  {key:'manufacturer',label:'Manufacturer',cell:r=>r.manufacturer||'—'},
+  {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
+];
+const FIREARM_COL_DEFAULTS={
+  wide:['name','caliber','barrel_length','twist_rate','manufacturer'],
+  narrow:['name','caliber','barrel_length','twist_rate'],
+};
+COL_TABLES.firearms={defs:FIREARM_COLS,defaults:FIREARM_COL_DEFAULTS,redraw:()=>{buildFirearmsHead();if(allFirearms.length) renderFirearms(allFirearms);}};
+
+function buildFirearmsHead(){
+  const tr=document.getElementById('firearms-head');
+  tr.innerHTML='';
+  visibleCols('firearms').forEach(col=>{
+    const th=document.createElement('th');
+    th.style.cursor='default';
+    th.textContent=col.label;
+    tr.appendChild(th);
+  });
+  tr.appendChild(colPickerTh('firearms'));
+}
+
 function renderFirearms(rows){
   const tbody=document.getElementById('firearms-body');
   const nd=document.getElementById('firearms-empty');
   tbody.innerHTML='';
   nd.style.display=rows.length?'none':'flex';
+  const cols=visibleCols('firearms');
   rows.forEach(row=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`
-      <td><strong>${row.name}</strong></td>
-      <td>${row.caliber||'—'}</td>
-      <td class="c-num">${row.barrel_length?row.barrel_length+' '+row.barrel_length_unit:'—'}</td>
-      <td>${fmtTwist(row)}</td>
-      <td class="col-hide">${row.manufacturer||'—'}</td>
+    tr.innerHTML=cols.map(c=>`<td${c.num?' class="c-num"':''}>${c.cell(row)}</td>`).join('')+`
       <td class="c-act">
         <button class="icon-btn" title="Edit" onclick="editFirearm(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
         <button class="icon-btn" title="Delete" onclick="deleteFirearm(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
@@ -1741,28 +1815,53 @@ function perfToggleRow(id){
   updatePerfSelUI();
 }
 
+const POSITION_ABBR={'Standing, unsupported':'Stand','Standing, sling supported':'Stand sling','Seated':'Seated','Prone, sling supported':'Prone sling','Prone, supported':'Prone supp','Obstacle':'Obstacle'};
+const PERF_COLS=[
+  {key:'lot_number',label:'Lot #',cell:r=>`<button class="badge badge-blue" onclick="event.stopPropagation();viewLotLoads('${r.lot_number}')">${r.lot_number||'—'}</button>`},
+  {key:'firearm_name',label:'Firearm',cell:r=>r.firearm_name||'—'},
+  {key:'date',label:'Date',num:true,cell:r=>r.date||'—'},
+  {key:'distance',label:'Distance',num:true,cell:r=>r.distance?r.distance+' '+r.distance_unit:'—'},
+  {key:'avg_velocity',label:'Avg Vel',num:true,cell:r=>r.avg_velocity?fmtVel(r.avg_velocity):'—'},
+  {key:'std_dev',label:'SD',num:true,cell:r=>r.std_dev?fmtVel(r.std_dev):'—'},
+  {key:'extreme_spread',label:'Vel ES',num:true,cell:r=>r.extreme_spread?fmtVel(r.extreme_spread):'—'},
+  {key:'group_size',label:'Group',num:true,cell:r=>r.group_size?r.group_size+' '+r.group_unit:'—'},
+  {key:'group_x',label:'Grp X',num:true,cell:r=>r.group_x?r.group_x+' '+r.group_unit:'—'},
+  {key:'group_y',label:'Grp Y',num:true,cell:r=>r.group_y?r.group_y+' '+r.group_unit:'—'},
+  {key:'num_shots',label:'Shots',num:true,cell:r=>r.num_shots||'—'},
+  {key:'position',label:'Position',cell:r=>r.position?POSITION_ABBR[r.position]||r.position:'—'},
+  {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
+];
+const PERF_COL_DEFAULTS={
+  wide:['lot_number','firearm_name','date','distance','avg_velocity','std_dev','extreme_spread','group_size','group_x','group_y','num_shots','position'],
+  narrow:['lot_number','firearm_name','distance','avg_velocity','std_dev','group_size'],
+};
+let lastPerfRows=[];
+COL_TABLES.perf={defs:PERF_COLS,defaults:PERF_COL_DEFAULTS,redraw:()=>{buildPerfHead();if(lastPerfRows.length) renderPerf(lastPerfRows);}};
+
+function buildPerfHead(){
+  const tr=document.getElementById('perf-head');
+  tr.innerHTML='';
+  visibleCols('perf').forEach(col=>{
+    const th=document.createElement('th');
+    th.innerHTML=`${col.label}<span class="si material-icons-round">unfold_more</span>`;
+    th.onclick=()=>perfSort(col.key);
+    tr.appendChild(th);
+  });
+  tr.appendChild(colPickerTh('perf'));
+}
+
 function renderPerf(rows){
+  lastPerfRows=rows;
   const tbody=document.getElementById('perf-body');
   const nd=document.getElementById('perf-empty');
   tbody.innerHTML='';
   nd.style.display=rows.length?'none':'flex';
+  const cols=visibleCols('perf');
   rows.forEach(row=>{
     const tr=document.createElement('tr');
     tr.dataset.id=row.id;
     tr.style.cursor='pointer';
-    tr.innerHTML=`
-      <td><button class="badge badge-blue" onclick="event.stopPropagation();viewLotLoads('${row.lot_number}')">${row.lot_number||'—'}</button></td>
-      <td>${row.firearm_name||'—'}</td>
-      <td class="c-num col-hide">${row.date||'—'}</td>
-      <td class="c-num">${row.distance?row.distance+' '+row.distance_unit:'—'}</td>
-      <td class="c-num">${row.avg_velocity?fmtVel(row.avg_velocity):'—'}</td>
-      <td class="c-num">${row.std_dev?fmtVel(row.std_dev):'—'}</td>
-      <td class="c-num col-hide">${row.extreme_spread?fmtVel(row.extreme_spread):'—'}</td>
-      <td class="c-num">${row.group_size?row.group_size+' '+row.group_unit:'—'}</td>
-      <td class="c-num col-hide">${row.group_x?row.group_x+' '+row.group_unit:'—'}</td>
-      <td class="c-num col-hide">${row.group_y?row.group_y+' '+row.group_unit:'—'}</td>
-      <td class="c-num col-hide">${row.num_shots||'—'}</td>
-      <td class="c-num col-hide">${(()=>{const m={'Standing, unsupported':'Stand','Standing, sling supported':'Stand sling','Seated':'Seated','Prone, sling supported':'Prone sling','Prone, supported':'Prone supp','Obstacle':'Obstacle'};return row.position?m[row.position]||row.position:'—';})()}</td>
+    tr.innerHTML=cols.map(c=>`<td${c.num?' class="c-num"':''}>${c.cell(row)}</td>`).join('')+`
       <td class="c-act">
         <button class="icon-btn" title="ShotMarker" onclick="event.stopPropagation();openShotViewer(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">my_location</span></button>
         <button class="icon-btn" title="Edit" onclick="event.stopPropagation();editPerformance(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
@@ -2277,7 +2376,7 @@ function setPerfUnit(type, val, save=true){
     document.getElementById('pu-mil')?.classList.toggle('active', val==='mil');
     if(save) settingsCache.perf_angle=val;
   }
-  if(save) renderPerf(allPerf);
+  if(save) COL_TABLES.perf.redraw();
 }
 function perfUnits(){ return {speed:settingsCache.perf_speed||'fps', angle:settingsCache.perf_angle||'MOA'}; }
 function fmtVel(fps_val){
@@ -2559,6 +2658,8 @@ function drawCmpCanvas(cvId, sessions, allShots, showSighters){
 
 // ══ Init ══════════════════════════════════════════════════════
 buildLoadsHead();
+buildPerfHead();
+buildFirearmsHead();
 Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
 </script>
 
