@@ -967,6 +967,8 @@ let loadsDebounce, perfDebounce;
 // NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function navigate(page) {
+  if(!document.getElementById('page-'+page)) page='loads';
+  try{ history.replaceState(null,'','#'+page); }catch(e){}   // so a refresh stays on this tab
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(l=>l.classList.toggle('active',l.dataset.page===page));
   document.getElementById('page-'+page).classList.add('active');
@@ -3006,6 +3008,10 @@ function drawCmpCanvas(cvId, sessions, allShots, showSighters){
 buildLoadsHead();
 buildPerfHead();
 buildFirearmsHead();
+{ // reopen the tab named in the URL (#performance etc.) after a refresh
+  const startPage=location.hash.slice(1);
+  if(startPage&&startPage!=='loads'&&document.getElementById('page-'+startPage)) navigate(startPage);
+}
 Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
 </script>
 
