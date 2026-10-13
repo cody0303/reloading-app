@@ -87,6 +87,7 @@ tbody tr:hover td{background:var(--sfv)}
 td.c-id{font-family:'Roboto Mono',monospace;font-size:11px;color:var(--ol)}
 td.c-num{font-family:'Roboto Mono',monospace}
 td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
+@media(min-width:701px){#loads-body td{white-space:nowrap}}
 .no-data{display:none;flex-direction:column;align-items:center;justify-content:center;padding:60px 24px;gap:10px;color:var(--osv)}
 .no-data .mi{font-size:48px;opacity:.2;color:var(--p)}
 .no-data p{font-size:14px;opacity:.55}
@@ -1034,10 +1035,16 @@ function toggleColPicker(ev,table){
   document.addEventListener('click',colPickerOutside,true);
   window.addEventListener('scroll',colPickerScroll,true);
 }
-if(narrowMQ.addEventListener) narrowMQ.addEventListener('change',()=>{
+let lastColScreen=colScreen();
+function colScreenChanged(){
+  const s=colScreen();
+  if(s===lastColScreen) return;
+  lastColScreen=s;
   closeColPicker();
   Object.values(COL_TABLES).forEach(t=>t.redraw());
-});
+}
+if(narrowMQ.addEventListener) narrowMQ.addEventListener('change',colScreenChanged);
+window.addEventListener('resize',colScreenChanged);
 
 COL_TABLES.loads={defs:LOAD_COLS,defaults:LOAD_COL_DEFAULTS,redraw:()=>{
   buildLoadsHead();
