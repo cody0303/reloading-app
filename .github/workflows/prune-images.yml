@@ -1,0 +1,56 @@
+name: Prune old images
+
+# Keeps the newest 10 versions of the container package in GHCR (private storage is capped at 500 MB) and
+# deletes the rest, including untagged leftovers from moving :latest. Two versions are never deleted:
+# the one pinned on the `deploy` branch (what Portainer is running) and the one tagged :latest.
+# Runs on the 1st of each month (a few seconds of Actions time). Run it by hand first with dry_run on.
+on:
+  schedule:
+    - cron: '17 4 1 * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be deleted without deleting'
+        type: boolean
+        default: true
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      packages: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PKG: reloading-app
+      KEEP: 10
+      DRY_RUN: ${{ inputs.dry_run == true }}
+    steps:
+      - name: Delete old versions
+        run: |
+          set -euo pipefail
+          API="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PKG}/versions"
+
+          # Tag Portainer is running, read from the deploy branch (never delete it)
+          PIN=$(gh api "repos/${GITHUB_REPOSITORY}/contents/docker-compose.portainer.yml?ref=deploy" --jq .content \
+                | base64 -d | sed -n 's/.*image: .*:\(v[0-9]*\).*/\1/p' | head -n1)
+          echo "Pinned on deploy: ${PIN:-<none found>}"
+          [ -n "$PIN" ] || { echo "Could not read the pinned version, refusing to delete anything"; exit 1; }
+
+          gh api --paginate "$API" | jq -s 'add | sort_by(.created_at) | reverse' > versions.json
+          echo "Versions in package: $(jq length versions.json)"
+
+          jq -r --argjson keep "$KEEP" --arg pin "$PIN" '
+            .[$keep:][]
+            | select(((.metadata.container.tags // []) | (index($pin) or index("latest"))) | not)
+            | "\(.id) \((.metadata.container.tags // []) | join(",") | if . == "" then "untagged" else . end)"
+          ' versions.json > delete.txt
+
+          echo "To delete: $(wc -l < delete.txt)"
+          cat delete.txt
+          if [ "$DRY_RUN" = "true" ]; then echo "Dry run, nothing deleted"; exit 0; fi
+          while read -r id tags; do
+            echo "Deleting $id ($tags)"
+            gh api -X DELETE "$API/$id"
+          done < delete.txt

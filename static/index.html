@@ -73,6 +73,16 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 /* ── Cards / Tables ── */
 .card{background:var(--sf);border-radius:var(--rlg);border:1px solid var(--olv);box-shadow:var(--s1);overflow:hidden}
 .table-wrap{overflow:auto}
+/* Desktop: the table scrolls inside its card, so the horizontal scrollbar stays at the bottom of the screen
+   (not the bottom of a long list) and the header row stays visible while scrolling down. */
+@media(min-width:701px){.table-wrap{max-height:calc(100vh - 230px);min-height:200px}}
+/* Slim scrollbars in the theme colours (Firefox, then Chrome/Safari/Edge) */
+*{scrollbar-width:thin;scrollbar-color:var(--ol) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--olv);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:var(--ol);background-clip:padding-box;border:2px solid transparent}
+::-webkit-scrollbar-corner{background:transparent}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead{position:sticky;top:0;z-index:10;background:var(--sf)}
 th{padding:10px 14px;text-align:left;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--osv);cursor:pointer;user-select:none;border-bottom:2px solid var(--olv);white-space:nowrap;transition:background .15s,color .15s}
