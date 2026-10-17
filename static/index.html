@@ -83,6 +83,16 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 ::-webkit-scrollbar-thumb{background:var(--olv);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--ol);background-clip:padding-box;border:2px solid transparent}
 ::-webkit-scrollbar-corner{background:transparent}
+
+/* ── Matches: stage cards in the match and course editors ── */
+.sg{border:1px solid var(--olv);border-radius:var(--rsm);padding:10px;background:var(--sfv);display:flex;flex-direction:column;gap:8px}
+.sg+.sg{margin-top:8px}
+.sg-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.sg-f{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sg-f>span{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--osv)}
+.sg-in{height:36px;width:100%;background:var(--sf);border:1px solid var(--ol);border-radius:var(--rsm);padding:0 8px;font-family:'Roboto',sans-serif;font-size:13px;color:var(--os);outline:none;min-width:0}
+[data-theme=dark] .sg-in{background:var(--sf2)}
+.sg-in:focus{border-color:var(--p)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead{position:sticky;top:0;z-index:10;background:var(--sf)}
 th{padding:10px 14px;text-align:left;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--osv);cursor:pointer;user-select:none;border-bottom:2px solid var(--olv);white-space:nowrap;transition:background .15s,color .15s}
@@ -295,6 +305,9 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
     <button class="nav-link" data-page="performance" onclick="navigate('performance')">
       <span class="mi ms">target</span><span class="lbl">Performance</span>
     </button>
+    <button class="nav-link" data-page="matches" onclick="navigate('matches')">
+      <span class="mi material-icons-round">emoji_events</span><span class="lbl">Matches</span>
+    </button>
     <button class="nav-link" data-page="settings" onclick="navigate('settings')">
       <span class="mi material-icons-round">tune</span><span class="lbl">Settings</span>
     </button>
@@ -401,6 +414,39 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   <button class="fab" id="perf-compare-fab" style="display:none;background:var(--p)" onclick="openCompare()">
     <span class="mi material-icons-round">compare</span>Compare (<span id="perf-sel-count">0</span>)
   </button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE: MATCHES                                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-matches">
+  <div class="page-header">
+    <span class="mi material-icons-round" style="color:var(--p);font-size:26px">emoji_events</span>
+    <div class="page-title">Matches</div>
+    <div class="unit-toggle">
+      <button id="mv-list" class="active" onclick="setMatchView('list')">Matches</button>
+      <button id="mv-records" onclick="setMatchView('records')">Records</button>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-filled btn-sm" onclick="openMatchModal()"><span class="mi material-icons-round">add</span>Add Match</button>
+    </div>
+  </div>
+  <div style="margin:0 12px 80px">
+    <div id="matches-list-wrap">
+      <div class="card table-wrap">
+        <table>
+          <thead><tr>
+            <th style="cursor:default">Date</th><th style="cursor:default">Match</th><th style="cursor:default">Course</th>
+            <th class="col-hide" style="cursor:default">Entry</th><th class="col-hide" style="cursor:default">Rifle</th>
+            <th style="cursor:default">Score</th><th style="cursor:default">X</th><th style="cursor:default">%</th><th style="cursor:default"></th>
+          </tr></thead>
+          <tbody id="matches-body"></tbody>
+        </table>
+        <div class="no-data" id="matches-empty"><span class="mi material-icons-round">emoji_events</span><p>No matches yet</p></div>
+      </div>
+    </div>
+    <div id="records-wrap" style="display:none"><div id="records-body"></div></div>
+  </div>
 </div>
 
 <!-- Compare Modal -->
@@ -541,6 +587,14 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Courses of fire -->
+    <div class="settings-card">
+      <h3><span class="mi material-icons-round">emoji_events</span>Courses of Fire</h3>
+      <div class="toggle-sub" style="margin-bottom:6px">Used by the Matches tab. Changing a course does not change matches you already entered.</div>
+      <div id="course-list"></div>
+      <button class="btn btn-tonal btn-sm" style="margin-top:10px" onclick="openCourseModal()"><span class="mi material-icons-round">add</span>Add Course</button>
     </div>
 
     <!-- App settings -->
@@ -735,6 +789,70 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <span class="mi material-icons-round">add</span>
       <span id="inv-save-text">Add Item</span>
     </button>
+  </div>
+</div>
+</div>
+
+<!-- Match Modal -->
+<div class="overlay modal-lg" id="match-overlay" onclick="overlayClick(event,'match-overlay')">
+<div class="modal" style="max-width:860px;width:96vw">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">emoji_events</span></div>
+    <div class="mtitle" id="match-modal-title">Add Match</div>
+    <button class="icon-btn" onclick="closeModal('match-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody">
+    <div class="field f-full"><input class="finput" id="mg-name" placeholder=" "><label class="flabel">Match name</label></div>
+    <div class="field"><input class="finput" type="date" id="mg-date" placeholder=" " onchange="renderMatchStages()"><label class="flabel">Date</label></div>
+    <div class="field"><input class="finput" id="mg-location" placeholder=" "><label class="flabel">Location</label></div>
+    <div class="field">
+      <select class="fselect" id="mg-course" onchange="onMatchCourseChange()"></select>
+      <label class="flabel">Course of fire</label>
+    </div>
+    <div class="field"><input class="finput" id="mg-entry" list="mg-entry-list" placeholder=" "><label class="flabel">Entry type</label>
+      <datalist id="mg-entry-list"></datalist></div>
+    <div class="field f-full">
+      <select class="fselect" id="mg-firearm"></select>
+      <label class="flabel">Rifle</label>
+    </div>
+    <div class="f-section">Stages</div>
+    <div class="f-full" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:-4px">
+      <button class="btn btn-tonal btn-sm" onclick="mgAutoLink()"><span class="mi material-icons-round">link</span>Link sessions by date</button>
+      <button class="btn btn-tonal btn-sm" onclick="mgAddStage()"><span class="mi material-icons-round">add</span>Add stage</button>
+      <span id="mg-hint" style="font-size:12px;color:var(--p)"></span>
+    </div>
+    <div class="f-full" id="mg-stages"></div>
+    <div class="field f-full"><textarea class="ftextarea" id="mg-notes" placeholder="Notes…"></textarea></div>
+  </div>
+  <div class="mfooter" style="align-items:center;flex-wrap:wrap">
+    <div id="mg-totals" style="flex:1;min-width:140px;font-size:13px;color:var(--os)"></div>
+    <button class="btn btn-tonal" onclick="closeModal('match-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="mg-save-btn" onclick="saveMatch()">
+      <span class="mi material-icons-round">save</span><span id="mg-save-text">Add Match</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- Course Modal -->
+<div class="overlay modal-lg" id="course-overlay" onclick="overlayClick(event,'course-overlay')">
+<div class="modal" style="max-width:760px;width:96vw">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">flag</span></div>
+    <div class="mtitle" id="course-modal-title">Add Course</div>
+    <button class="icon-btn" onclick="closeModal('course-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody single-col">
+    <div class="field"><input class="finput" id="cc-name" placeholder=" "><label class="flabel">Course name</label></div>
+    <div>
+      <div class="fl" style="margin-bottom:6px">Stages (in firing order)</div>
+      <div id="cc-stages"></div>
+      <button class="btn btn-tonal btn-sm" style="margin-top:8px" onclick="ccAdd()"><span class="mi material-icons-round">add</span>Add stage</button>
+    </div>
+  </div>
+  <div class="mfooter">
+    <button class="btn btn-tonal" onclick="closeModal('course-overlay')">Cancel</button>
+    <button class="btn btn-filled" id="cc-save-btn" onclick="saveCourse()"><span class="mi material-icons-round">save</span>Save</button>
   </div>
 </div>
 </div>
@@ -998,6 +1116,7 @@ function navigate(page) {
   if(page==='inventory')   fetchInventory();
   if(page==='firearms')    fetchFirearms();
   if(page==='performance') fetchPerformance();
+  if(page==='matches')     { fetchPerformance(); fetchMatches(); }
   if(page==='settings')    loadSettings();
 }
 
@@ -3084,6 +3203,441 @@ function drawCmpCanvas(cvId, sessions, allShots, showSighters){
   initInteractiveCanvas(cvId, getTagged, ()=>bulletD, null);
 }
 
+// ══════════════════════════════════════════════════════════════
+// MATCHES
+// ══════════════════════════════════════════════════════════════
+let allMatches=[], allCourses=[];
+let matchEditId=null, matchEditCourseName=null, matchStages=[];
+let courseEditId=null, courseStages=[];
+
+// ── Pure helpers (also exercised by tests/frontend.test.js) ──
+// "95-3X" -> 3. Anything not in ShotMarker's total-count style gives null.
+function parseXCount(txt){
+  const m=/^\s*\d+\s*-\s*(\d+)\s*[XV]?\s*$/i.exec(txt==null?'':String(txt));
+  return m?parseInt(m[1],10):null;
+}
+// Totals for a match. Percent only counts the stages that have a score, so a half-entered match isn't dragged down.
+function matchTotals(m){
+  const st=m.stages||[];
+  let score=0,max=0,x=0,shots=0,scored=0;
+  st.forEach(s=>{
+    const n=+s.shots||0; shots+=n;
+    if(s.score!=null&&s.score!==''){ score+=+s.score; max+=n*10; scored++; }
+    if(s.x_count!=null&&s.x_count!=='') x+=+s.x_count;
+  });
+  return {score,max,x,shots,scored,count:st.length,pct:max?score/max*100:null,complete:st.length>0&&scored===st.length};
+}
+function dayNum(d){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||'');
+  return m?Date.UTC(+m[1],+m[2]-1,+m[3])/86400000:null;
+}
+function sameDist(p,st){
+  return !!(st&&+p.distance&&+p.distance===+st.distance&&(p.distance_unit||'yd')===(st.distance_unit||'yd'));
+}
+// Sessions to offer for a match: those within a day of its date first (same-distance ones ahead of the rest,
+// then in the order they were shot), then everything else, newest first. `taken` = session ids already in a match.
+function sessionSuggestions(sessions,date,taken,stage){
+  const t=dayNum(date), skip=taken||new Set();
+  const near=[], other=[];
+  sessions.forEach(p=>{
+    if(skip.has(p.id)) return;
+    const d=dayNum(p.date);
+    if(t!=null&&d!=null&&Math.abs(d-t)<=1) near.push({p,gap:Math.abs(d-t)});
+    else other.push(p);
+  });
+  near.sort((a,b)=>a.gap-b.gap||(sameDist(b.p,stage)-sameDist(a.p,stage))||a.p.id-b.p.id);
+  other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);
+  return {suggested:near.map(x=>x.p),other};
+}
+// Fills the stages that have no session yet: each takes the earliest unused session at its own distance.
+// Returns one session id (or null) per stage; stages that already had one keep it.
+function autoAssignSessions(stages,sessions,taken){
+  const used=new Set(taken||[]);
+  stages.forEach(s=>{ if(s.performance_id) used.add(s.performance_id); });
+  const pool=sessions.filter(p=>!used.has(p.id))
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.id-b.id);
+  return stages.map(st=>{
+    if(st.performance_id) return st.performance_id;
+    const i=pool.findIndex(p=>sameDist(p,st));
+    return i<0?null:pool.splice(i,1)[0].id;
+  });
+}
+// Stages are compared across matches by name, distance and shot count (a 20-shot prone at 600 is the same
+// stage in a National Match Course and a Mid-Range match; a 10-shot one is not).
+function stageKey(s){ return `${s.name}|${+s.distance||0}${s.distance_unit||'yd'}|${s.shots}`; }
+function computeRecords(matches){
+  const sorted=[...matches].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.id-b.id);
+  const st=new Map(), co=new Map();
+  sorted.forEach(m=>{
+    (m.stages||[]).forEach(s=>{
+      if(s.score==null||s.score==='') return;
+      const k=stageKey(s);
+      let r=st.get(k);
+      if(!r){ r={key:k,name:s.name,distance:+s.distance||0,unit:s.distance_unit||'yd',shots:+s.shots,count:0,sum:0,xsum:0,best:null,bestX:null,last:null,series:[]}; st.set(k,r); }
+      const sc=+s.score, x=(s.x_count==null||s.x_count==='')?0:+s.x_count;
+      const rec={score:sc,x,date:m.date,matchId:m.id,matchName:m.name};
+      r.count++; r.sum+=sc; r.xsum+=x; r.last=rec; r.series.push(sc/(r.shots*10)*100);
+      if(!r.best||sc>r.best.score||(sc===r.best.score&&x>r.best.x)) r.best=rec;
+      if(!r.bestX||x>=r.bestX.x) r.bestX=rec;            // ties show the most recent
+    });
+    const t=matchTotals(m);
+    if(m.course_name&&t.complete){
+      let c=co.get(m.course_name);
+      if(!c){ c={name:m.course_name,count:0,best:null,pcts:[],xs:[]}; co.set(m.course_name,c); }
+      const rec={score:t.score,x:t.x,max:t.max,pct:t.pct,date:m.date,matchId:m.id,matchName:m.name};
+      c.count++; c.pcts.push(t.pct); c.xs.push(t.x);
+      if(!c.best||t.pct>c.best.pct||(t.pct===c.best.pct&&t.x>c.best.x)) c.best=rec;
+    }
+  });
+  const avg=a=>a.length?a.reduce((p,q)=>p+q,0)/a.length:null;
+  const stages=[...st.values()].map(r=>({...r,avg:r.sum/r.count,avgX:r.xsum/r.count}))
+    .sort((a,b)=>a.distance-b.distance||a.name.localeCompare(b.name)||a.shots-b.shots);
+  const courses=[...co.values()].map(c=>({...c,avgPct:avg(c.pcts),last3Pct:avg(c.pcts.slice(-3)),avgX:avg(c.xs)}))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  return {stages,courses};
+}
+function apiErr(e){
+  try{ const j=JSON.parse(e.message); if(j&&j.error) return j.error; }catch(_){}
+  return e.message;
+}
+function sessionLabel(p){
+  return `${p.lot_number||'Session '+p.id} · ${p.date||'no date'} · ${p.distance||'?'}${p.distance_unit||'yd'}`
+    +(p.score_text?` · ${p.score_text}`:'')+(p.firearm_name?` · ${p.firearm_name}`:'');
+}
+function fmtStage(s){ return `${s.distance?s.distance+' '+(s.unit||s.distance_unit||'yd')+' · ':''}${s.name}`; }
+function sparkSvg(v){
+  v=v.slice(-12);
+  if(v.length<2) return '';
+  const w=84,h=24,pad=3, lo=Math.min(...v), hi=Math.max(...v), r=(hi-lo)||1;
+  const pts=v.map((y,i)=>[pad+i*(w-2*pad)/(v.length-1), h-pad-(y-lo)/r*(h-2*pad)]);
+  const last=pts[pts.length-1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="vertical-align:middle"><polyline fill="none" stroke="var(--p)" stroke-width="1.5" points="${pts.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ')}"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="var(--p)"/></svg>`;
+}
+
+// ── Loading and the two views ──
+async function fetchCourses(){
+  try{ allCourses=await api('GET','/api/courses'); renderCourseList(); fillMatchCourseSelect(); }
+  catch(e){ snack('Error loading courses','err'); }
+}
+async function fetchMatches(){
+  try{ allMatches=await api('GET','/api/matches'); renderMatches(); renderRecords(); }
+  catch(e){ snack('Error loading matches','err'); }
+}
+function setMatchView(v){
+  document.getElementById('matches-list-wrap').style.display=v==='list'?'':'none';
+  document.getElementById('records-wrap').style.display=v==='records'?'':'none';
+  document.getElementById('mv-list').classList.toggle('active',v==='list');
+  document.getElementById('mv-records').classList.toggle('active',v==='records');
+}
+
+function renderMatches(){
+  const tb=document.getElementById('matches-body');
+  document.getElementById('matches-empty').style.display=allMatches.length?'none':'flex';
+  tb.innerHTML='';
+  allMatches.forEach(m=>{
+    const t=matchTotals(m);
+    const tr=document.createElement('tr');
+    tr.style.cursor='pointer';
+    tr.onclick=()=>editMatch(m.id);
+    tr.innerHTML=`
+      <td class="c-num">${escHtml(m.date||'—')}</td>
+      <td><strong>${escHtml(m.name)}</strong>${m.location?`<div style="font-size:11px;color:var(--osv)">${escHtml(m.location)}</div>`:''}</td>
+      <td>${escHtml(m.course_name||'Ad hoc')}</td>
+      <td class="col-hide">${escHtml(m.entry_type||'—')}</td>
+      <td class="col-hide">${escHtml(m.firearm_name||'—')}</td>
+      <td class="c-num">${t.scored?`${t.score} / ${t.max}`:'—'}${t.scored&&!t.complete?' <span class="chip chip-warn">partial</span>':''}</td>
+      <td class="c-num">${t.scored?t.x+'X':'—'}</td>
+      <td class="c-num">${t.pct==null?'—':t.pct.toFixed(1)+'%'}</td>
+      <td class="c-act"><button class="icon-btn" title="Delete" onclick="event.stopPropagation();deleteMatch(${m.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button></td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function renderRecords(){
+  const wrap=document.getElementById('records-body');
+  const R=computeRecords(allMatches);
+  if(!R.stages.length){
+    wrap.innerHTML='<div class="no-data" style="display:flex"><span class="mi material-icons-round">emoji_events</span><p>Records appear once a match has scores</p></div>';
+    return;
+  }
+  const d=s=>s?escHtml(s):'—';
+  const pct=v=>v==null?'—':v.toFixed(1)+'%';
+  const courses=R.courses.length?`
+    <div class="card table-wrap" style="margin-bottom:14px;min-height:0;max-height:none"><table>
+      <thead><tr><th style="cursor:default">Course</th><th style="cursor:default">Matches</th><th style="cursor:default">Best</th><th style="cursor:default">Average</th><th style="cursor:default">Last 3</th><th style="cursor:default">Avg X</th><th style="cursor:default">Trend</th></tr></thead>
+      <tbody>${R.courses.map(c=>`<tr style="cursor:default">
+        <td><strong>${escHtml(c.name)}</strong></td><td class="c-num">${c.count}</td>
+        <td class="c-num">${c.best.score} / ${c.best.max} · ${c.best.x}X<div style="font-size:11px;color:var(--osv)">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div></td>
+        <td class="c-num">${pct(c.avgPct)}</td><td class="c-num">${pct(c.last3Pct)}</td>
+        <td class="c-num">${c.avgX.toFixed(1)}</td><td>${sparkSvg(c.pcts)}</td></tr>`).join('')}</tbody>
+    </table></div>`:'';
+  const stages=`
+    <div class="card table-wrap" style="min-height:0;max-height:none"><table>
+      <thead><tr><th style="cursor:default">Stage</th><th style="cursor:default">Shots</th><th style="cursor:default">Best score</th><th style="cursor:default">Best X</th><th style="cursor:default">Average</th><th style="cursor:default">Last</th><th style="cursor:default">Times</th><th style="cursor:default">Trend</th></tr></thead>
+      <tbody>${R.stages.map(s=>`<tr style="cursor:default">
+        <td><strong>${escHtml(fmtStage(s))}</strong></td><td class="c-num">${s.shots}</td>
+        <td class="c-num">${s.best.score} · ${s.best.x}X<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
+        <td class="c-num">${s.bestX.x}X<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
+        <td class="c-num">${s.avg.toFixed(1)} · ${s.avgX.toFixed(1)}X</td>
+        <td class="c-num">${s.last.score} · ${s.last.x}X</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  wrap.innerHTML=(courses?'<div class="fl" style="margin:0 2px 6px">By course</div>'+courses:'')
+    +'<div class="fl" style="margin:0 2px 6px">Personal bests by stage</div>'+stages;
+}
+
+// ── Match editor ──
+function takenSessionIds(exceptStage){
+  const ids=new Set();
+  allMatches.forEach(m=>{ if(m.id!==matchEditId) m.stages.forEach(s=>{ if(s.performance_id) ids.add(s.performance_id); }); });
+  matchStages.forEach((s,i)=>{ if(i!==exceptStage&&s.performance_id) ids.add(s.performance_id); });
+  return ids;
+}
+function fillMatchCourseSelect(){
+  const sel=document.getElementById('mg-course'); if(!sel) return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">No course (ad hoc)</option>'+allCourses.map(c=>`<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+  sel.value=cur;
+}
+function fillMatchLists(){
+  const types=new Set(['Service Rifle','Match Rifle']);
+  allMatches.forEach(m=>{ if(m.entry_type) types.add(m.entry_type); });
+  document.getElementById('mg-entry-list').innerHTML=[...types].map(t=>`<option value="${escHtml(t)}">`).join('');
+  const sel=document.getElementById('mg-firearm');
+  sel.innerHTML='<option value="">— select rifle —</option>'+allFirearms.map(f=>`<option value="${f.id}">${escHtml(f.name)}${f.caliber?' ('+escHtml(f.caliber)+')':''}</option>`).join('');
+}
+function cloneCourseStages(c){
+  return c.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,score:'',x_count:'',performance_id:null}));
+}
+function openMatchModal(){
+  matchEditId=null; matchEditCourseName=null;
+  fillMatchLists(); fillMatchCourseSelect();
+  ['mg-name','mg-date','mg-location','mg-entry','mg-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('mg-firearm').value='';
+  // Start from the course used last time, since most people shoot the same one repeatedly
+  const last=allMatches.find(m=>m.course_id&&allCourses.some(c=>c.id===m.course_id));
+  document.getElementById('mg-course').value=last?String(last.course_id):'';
+  document.getElementById('mg-entry').value=last&&last.entry_type?last.entry_type:'';
+  document.getElementById('mg-firearm').value=last&&last.firearm_id?String(last.firearm_id):'';
+  const c=allCourses.find(x=>x.id===(last&&last.course_id));
+  matchStages=c?cloneCourseStages(c):[];
+  document.getElementById('match-modal-title').textContent='Add Match';
+  document.getElementById('mg-save-text').textContent='Add Match';
+  renderMatchStages();
+  openModal('match-overlay');
+}
+function editMatch(id){
+  const m=allMatches.find(x=>x.id===id); if(!m) return;
+  matchEditId=id; matchEditCourseName=m.course_id?null:m.course_name;
+  fillMatchLists(); fillMatchCourseSelect();
+  document.getElementById('mg-name').value=m.name||'';
+  document.getElementById('mg-date').value=m.date||'';
+  document.getElementById('mg-location').value=m.location||'';
+  document.getElementById('mg-entry').value=m.entry_type||'';
+  document.getElementById('mg-notes').value=m.notes||'';
+  document.getElementById('mg-course').value=m.course_id?String(m.course_id):'';
+  document.getElementById('mg-firearm').value=m.firearm_id?String(m.firearm_id):'';
+  matchStages=m.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,
+    score:s.score==null?'':s.score,x_count:s.x_count==null?'':s.x_count,performance_id:s.performance_id||null}));
+  document.getElementById('match-modal-title').textContent='Edit: '+m.name;
+  document.getElementById('mg-save-text').textContent='Save Changes';
+  renderMatchStages();
+  openModal('match-overlay');
+}
+function onMatchCourseChange(){
+  const c=allCourses.find(x=>String(x.id)===document.getElementById('mg-course').value);
+  if(!c) return;                                  // ad hoc: keep whatever stages are there
+  if(matchStages.some(s=>s.score!==''||s.performance_id)&&!confirm('Replace the current stages (and their scores and linked sessions) with this course?')){
+    const cur=matchEditId?allMatches.find(m=>m.id===matchEditId):null;
+    document.getElementById('mg-course').value=cur&&cur.course_id?String(cur.course_id):'';
+    return;
+  }
+  matchStages=cloneCourseStages(c);
+  renderMatchStages();
+}
+function mgSessionOptions(i){
+  const st=matchStages[i], date=document.getElementById('mg-date').value;
+  const {suggested,other}=sessionSuggestions(allPerf,date,takenSessionIds(i),st);
+  const opt=p=>`<option value="${p.id}"${p.id===st.performance_id?' selected':''}>${escHtml(sessionLabel(p))}</option>`;
+  return '<option value="">— none —</option>'
+    +(suggested.length?`<optgroup label="Near the match date">${suggested.map(opt).join('')}</optgroup>`:'')
+    +(other.length?`<optgroup label="Other sessions">${other.map(opt).join('')}</optgroup>`:'');
+}
+function renderMatchStages(){
+  const wrap=document.getElementById('mg-stages');
+  wrap.innerHTML=matchStages.length?matchStages.map((s,i)=>`
+    <div class="sg">
+      <div class="sg-row">
+        <label class="sg-f" style="flex:1 1 180px"><span>Stage</span><input class="sg-in" value="${escHtml(s.name)}" oninput="mgSet(${i},'name',this.value)"></label>
+        <label class="sg-f" style="width:84px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="mgSet(${i},'distance',this.value)"></label>
+        <label class="sg-f" style="width:62px"><span>Unit</span><select class="sg-in" onchange="mgSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
+        <label class="sg-f" style="width:70px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="mgSet(${i},'shots',this.value)"></label>
+        <button class="icon-btn" title="Remove stage" onclick="mgRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
+      </div>
+      <div class="sg-row">
+        <label class="sg-f" style="flex:1 1 220px"><span>Session</span><select class="sg-in" onchange="mgSession(${i},this.value)">${mgSessionOptions(i)}</select></label>
+        <label class="sg-f" style="width:96px"><span>Score</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.score)}" oninput="mgSet(${i},'score',this.value)"></label>
+        <label class="sg-f" style="width:70px"><span>X</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.x_count)}" oninput="mgSet(${i},'x_count',this.value)"></label>
+      </div>
+    </div>`).join(''):'<div style="font-size:13px;color:var(--osv);padding:6px 2px">No stages yet. Pick a course above, or add stages by hand.</div>';
+  updateMatchTotals();
+}
+function mgSet(i,key,val){ matchStages[i][key]=val; updateMatchTotals(); }
+function mgAddStage(){ matchStages.push({name:'Stage '+(matchStages.length+1),distance:'',distance_unit:'yd',shots:10,score:'',x_count:'',performance_id:null}); renderMatchStages(); }
+function mgRemove(i){ matchStages.splice(i,1); renderMatchStages(); }
+function updateMatchTotals(){
+  const t=matchTotals({stages:matchStages});
+  document.getElementById('mg-totals').innerHTML=t.scored
+    ?`<b>${t.score}</b> / ${t.max} · <b>${t.x}</b>X · ${t.pct.toFixed(1)}%${t.complete?'':' <span class="chip chip-warn">partial</span>'}`
+    :'No scores entered';
+  // Say so when sessions near the date could be linked automatically
+  const date=document.getElementById('mg-date').value;
+  const free=matchStages.some(s=>!s.performance_id);
+  const n=free&&date?sessionSuggestions(allPerf,date,takenSessionIds(-1)).suggested.length:0;
+  document.getElementById('mg-hint').textContent=n?`${n} unlinked session${n>1?'s':''} within a day of this date`:'';
+}
+// Linking a session fills in what it knows: the stage score, the match date and the rifle
+function mgSession(i,val){
+  const st=matchStages[i], p=val?allPerf.find(x=>x.id===+val):null;
+  st.performance_id=p?p.id:null;
+  if(p) mgApplySession(st,p);
+  renderMatchStages();
+}
+function mgApplySession(st,p){
+  if(p.score_total!=null&&p.use_score!==0){
+    st.score=p.score_total;
+    const x=parseXCount(p.score_text);
+    if(x!=null) st.x_count=x;
+  }else{
+    snack('That session has no score to copy; enter this stage by hand','warn');
+  }
+  mgSyncFromSessions();
+}
+function mgSyncFromSessions(){
+  const linked=matchStages.map(s=>allPerf.find(p=>p.id===s.performance_id)).filter(Boolean);
+  if(!linked.length) return;
+  const dateEl=document.getElementById('mg-date');
+  if(!dateEl.value){
+    const dates=linked.map(p=>p.date).filter(Boolean).sort();
+    if(dates.length) dateEl.value=dates[0];
+  }
+  const guns=[...new Set(linked.map(p=>p.firearm_id).filter(Boolean))];
+  const gunEl=document.getElementById('mg-firearm');
+  if(guns.length===1&&!gunEl.value) gunEl.value=String(guns[0]);
+  else if(guns.length>1) snack('The linked sessions used different rifles; choose the one for the match','warn');
+}
+function mgAutoLink(){
+  const date=document.getElementById('mg-date').value;
+  if(!date){ snack('Set the match date first','warn'); return; }
+  const taken=takenSessionIds(-1);
+  const near=sessionSuggestions(allPerf,date,taken).suggested;
+  const ids=autoAssignSessions(matchStages,near,taken);
+  let n=0;
+  ids.forEach((id,i)=>{
+    if(id&&id!==matchStages[i].performance_id){
+      matchStages[i].performance_id=id; n++;
+      const p=allPerf.find(x=>x.id===id);
+      if(p&&p.score_total!=null&&p.use_score!==0){ matchStages[i].score=p.score_total; const x=parseXCount(p.score_text); if(x!=null) matchStages[i].x_count=x; }
+    }
+  });
+  mgSyncFromSessions();
+  renderMatchStages();
+  snack(n?`Linked ${n} session${n>1?'s':''} by distance`:'No unlinked sessions at those distances near that date',n?'ok':'warn');
+}
+async function saveMatch(){
+  const name=document.getElementById('mg-name').value.trim();
+  if(!name){ snack('Match name is required','err'); return; }
+  for(const s of matchStages){
+    if(!String(s.name).trim()){ snack('Every stage needs a name','err'); return; }
+    if(!(+s.shots>0)){ snack(`"${s.name}" needs a shot count`,'err'); return; }
+    if(s.score!==''&&(+s.score<0||+s.score>s.shots*10)){ snack(`"${s.name}": score must be 0–${s.shots*10}`,'err'); return; }
+    if(s.x_count!==''&&(+s.x_count<0||+s.x_count>+s.shots)){ snack(`"${s.name}": X count can't exceed ${s.shots}`,'err'); return; }
+  }
+  const course=allCourses.find(c=>String(c.id)===document.getElementById('mg-course').value);
+  const data={
+    name, date:document.getElementById('mg-date').value, location:document.getElementById('mg-location').value,
+    entry_type:document.getElementById('mg-entry').value, notes:document.getElementById('mg-notes').value,
+    firearm_id:document.getElementById('mg-firearm').value,
+    course_id:course?course.id:'', course_name:course?course.name:(matchEditCourseName||''),
+    stages:matchStages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit,shots:s.shots,
+      score:s.score,x_count:s.x_count,performance_id:s.performance_id})),
+  };
+  const btn=document.getElementById('mg-save-btn'); btn.disabled=true;
+  try{
+    if(matchEditId) await api('PUT',`/api/matches/${matchEditId}`,data);
+    else await api('POST','/api/matches',data);
+    snack(matchEditId?'Match updated':'Match added','ok');
+    closeModal('match-overlay');
+    await fetchMatches();
+  }catch(e){ snack('Error: '+apiErr(e),'err'); }
+  btn.disabled=false;
+}
+async function deleteMatch(id){
+  if(!confirm('Delete this match? Its performance sessions are kept.')) return;
+  try{ await api('DELETE',`/api/matches/${id}`); snack('Deleted','ok'); await fetchMatches(); }
+  catch(e){ snack('Error','err'); }
+}
+
+// ── Course editor (Settings) ──
+function renderCourseList(){
+  const el=document.getElementById('course-list'); if(!el) return;
+  el.innerHTML=allCourses.length?allCourses.map(c=>{
+    const shots=c.stages.reduce((a,s)=>a+s.shots,0);
+    return `<div class="toggle-row"><div><div class="toggle-label">${escHtml(c.name)}</div>
+      <div class="toggle-sub">${c.stages.length} stage${c.stages.length===1?'':'s'} · ${shots} shots · ${shots*10} points</div></div>
+      <div style="display:flex;gap:4px">
+        <button class="icon-btn" title="Edit" onclick="openCourseModal(${c.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
+        <button class="icon-btn" title="Delete" onclick="deleteCourse(${c.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
+      </div></div>`;
+  }).join(''):'<div class="toggle-sub">No courses yet.</div>';
+}
+function openCourseModal(id){
+  courseEditId=id||null;
+  const c=id?allCourses.find(x=>x.id===id):null;
+  document.getElementById('course-modal-title').textContent=c?'Edit: '+c.name:'Add Course';
+  document.getElementById('cc-name').value=c?c.name:'';
+  courseStages=c?c.stages.map(s=>({...s,distance_unit:s.distance_unit||'yd'})):[{name:'Slow Fire Prone',distance:600,distance_unit:'yd',shots:20}];
+  renderCourseStages();
+  openModal('course-overlay');
+}
+function renderCourseStages(){
+  document.getElementById('cc-stages').innerHTML=courseStages.map((s,i)=>`
+    <div class="sg"><div class="sg-row">
+      <label class="sg-f" style="flex:1 1 170px"><span>Stage</span><input class="sg-in" value="${escHtml(s.name)}" oninput="ccSet(${i},'name',this.value)"></label>
+      <label class="sg-f" style="width:84px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="ccSet(${i},'distance',this.value)"></label>
+      <label class="sg-f" style="width:62px"><span>Unit</span><select class="sg-in" onchange="ccSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
+      <label class="sg-f" style="width:70px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="ccSet(${i},'shots',this.value)"></label>
+      <button class="icon-btn" title="Move up" onclick="ccMove(${i},-1)"${i?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_upward</span></button>
+      <button class="icon-btn" title="Move down" onclick="ccMove(${i},1)"${i<courseStages.length-1?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_downward</span></button>
+      <button class="icon-btn" title="Remove stage" onclick="ccRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
+    </div></div>`).join('');
+}
+function ccSet(i,k,v){ courseStages[i][k]=v; }
+function ccAdd(){ courseStages.push({name:'Slow Fire Prone',distance:'',distance_unit:'yd',shots:10}); renderCourseStages(); }
+function ccRemove(i){ courseStages.splice(i,1); renderCourseStages(); }
+function ccMove(i,d){
+  const j=i+d; if(j<0||j>=courseStages.length) return;
+  [courseStages[i],courseStages[j]]=[courseStages[j],courseStages[i]]; renderCourseStages();
+}
+async function saveCourse(){
+  const name=document.getElementById('cc-name').value.trim();
+  if(!name){ snack('Course name is required','err'); return; }
+  const btn=document.getElementById('cc-save-btn'); btn.disabled=true;
+  try{
+    const body={name,stages:courseStages};
+    if(courseEditId) await api('PUT',`/api/courses/${courseEditId}`,body);
+    else await api('POST','/api/courses',body);
+    snack('Course saved','ok');
+    closeModal('course-overlay');
+    await fetchCourses();
+  }catch(e){ snack('Error: '+apiErr(e),'err'); }
+  btn.disabled=false;
+}
+async function deleteCourse(id){
+  if(!confirm('Delete this course? Matches already entered keep their stages and scores.')) return;
+  try{ await api('DELETE',`/api/courses/${id}`); snack('Deleted','ok'); await fetchCourses(); }
+  catch(e){ snack('Error','err'); }
+}
+
 // ══ Init ══════════════════════════════════════════════════════
 buildLoadsHead();
 buildPerfHead();
@@ -3092,7 +3646,7 @@ buildFirearmsHead();
   const startPage=location.hash.slice(1);
   if(startPage&&startPage!=='loads'&&document.getElementById('page-'+startPage)) navigate(startPage);
 }
-Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings()]);
+Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings(),fetchCourses()]);
 </script>
 
 

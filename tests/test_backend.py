@@ -202,6 +202,71 @@ check("shortfall is needed minus available", short["needed"] == 250 and short["a
 out = call(ns["add_inventory_stock"], {"amount": 200}, short["inventory_id"])
 check("add stock changes only the quantity", out["quantity"] == 300 and out["name"] == "BR-2" and out["unit"] == "count")
 
+# ── matches and courses of fire ───────────────────────────────
+courses = call(ns["list_courses"])
+nmc = [c for c in courses if c["name"] == "National Match Course"][0]
+check("six courses are seeded", len(courses) == 6, len(courses))
+check("National Match Course is 4 stages and 50 shots", len(nmc["stages"]) == 4 and sum(s["shots"] for s in nmc["stages"]) == 50)
+check("Long Course has 40 shots at 600", [c for c in courses if c["name"].endswith("Long Course")][0]["stages"][-1]["shots"] == 40)
+call(ns["init_db"])
+check("seeding does not run twice", len(call(ns["list_courses"])) == 6)
+
+request.method = "POST"
+m1 = call(ns["create_match"], {"name": "Club match", "date": "2026-09-05", "location": "Home range",
+                               "entry_type": "Service Rifle", "course_id": nmc["id"]})
+check("a new match copies the course's stages", len(m1["stages"]) == 4 and m1["course_name"] == "National Match Course"
+      and [s["shots"] for s in m1["stages"]] == [10, 10, 10, 20], m1)
+check("a new match starts with no scores", all(s["score"] is None and s["x_count"] is None for s in m1["stages"]))
+
+request.json = {"name": "x", "stages": [{"name": "SF", "shots": 10, "score": 101}]}
+r = ns["create_match"]()
+check("a score above 10 a shot is refused", isinstance(r, tuple) and r[1] == 400 and "score" in r[0]["error"], r)
+request.json = {"name": "x", "stages": [{"name": "SF", "shots": 10, "score": 90, "x_count": 11}]}
+r = ns["create_match"]()
+check("an X count above the shot count is refused", isinstance(r, tuple) and r[1] == 400, r)
+request.json = {"name": "", "stages": []}
+check("a match needs a name", ns["create_match"]()[1] == 400)
+
+pa = call(ns["create_performance"], {"lot_number": "M1", "distance": 200, "distance_unit": "yd", "date": "2026-09-05"})["id"]
+pb = call(ns["create_performance"], {"lot_number": "M2", "distance": 600, "distance_unit": "yd", "date": "2026-09-05"})["id"]
+con.execute("UPDATE performance SET score_text='95-3X', score_total=95 WHERE id=?", (pa,)); con.commit()
+st = m1["stages"]
+st[0].update(score=95, x_count=3, performance_id=pa)
+st[3].update(score=188, x_count=6, performance_id=pb)
+request.method = "PUT"
+m1b = call(ns["update_match"], {"name": "Club match", "date": "2026-09-05", "course_id": nmc["id"],
+                                "course_name": "National Match Course", "stages": st}, m1["id"])
+check("scores and linked sessions are saved",
+      [(s["score"], s["x_count"]) for s in m1b["stages"]] == [(95, 3), (None, None), (None, None), (188, 6)]
+      and m1b["stages"][0]["lot_number"] == "M1" and m1b["stages"][0]["score_text"] == "95-3X", m1b["stages"][0])
+
+request.method = "POST"
+request.json = {"name": "Other", "stages": [{"name": "SF", "shots": 10, "performance_id": pa}]}
+r = ns["create_match"]()
+check("a session cannot be in two matches", isinstance(r, tuple) and r[1] == 409, r)
+request.json = {"name": "Dup", "stages": [{"name": "A", "shots": 10, "performance_id": pa}, {"name": "B", "shots": 10, "performance_id": pa}]}
+check("a session cannot fill two stages", ns["create_match"]()[1] == 400)
+
+request.method = "PUT"
+call(ns["update_course"], {"name": "National Match Course", "stages": [{"name": "Only", "distance": 100, "shots": 5}]}, nmc["id"])
+check("editing a course leaves old matches alone", len(call(ns["list_matches"])[0]["stages"]) == 4)
+request.method = "POST"
+request.json = {"name": "National Match Course", "stages": []}
+r = ns["create_course"]()
+check("duplicate course names are refused", isinstance(r, tuple) and r[1] == 409, r)
+request.json = {"name": "Bad", "stages": [{"name": "SF", "shots": 0}]}
+check("a course stage needs shots", ns["create_course"]()[1] == 400)
+
+call(ns["delete_performance"], None, pb)
+stages_now = call(ns["list_matches"])[0]["stages"]
+check("deleting a session unlinks it but keeps the score",
+      len([s for s in stages_now if s["performance_id"]]) == 1 and stages_now[3]["score"] == 188 and stages_now[3]["performance_id"] is None)
+call(ns["delete_course"], None, nmc["id"])
+mm = call(ns["list_matches"])[0]
+check("deleting a course keeps the match and its stages", mm["course_id"] is None and mm["course_name"] == "National Match Course" and len(mm["stages"]) == 4)
+call(ns["delete_match"], None, m1["id"])
+check("deleting a match deletes its stages", con.execute("SELECT COUNT(*) FROM match_stages").fetchone()[0] == 0)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

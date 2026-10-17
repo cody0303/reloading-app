@@ -130,6 +130,58 @@ function runTests(scripts) {
   const plan = f.pfPlanFromOffset(3);                                   // 26 chronograph shots, 22 ShotMarker shots
   check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
 
+  // 5. Matches: totals, session suggestions, automatic linking, personal bests
+  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'computeRecords']);
+  check('X count read from a ShotMarker score', mt.parseXCount('191-5X') === 5 && mt.parseXCount('37-1V') === 1 && mt.parseXCount('95-0X') === 0);
+  check('X count: anything else gives null', mt.parseXCount('') === null && mt.parseXCount(null) === null && mt.parseXCount('95') === null && mt.parseXCount('abc') === null);
+  const part = mt.matchTotals({ stages: [{ shots: 10, score: 95, x_count: 3 }, { shots: 10, score: '', x_count: '' }, { shots: 20, score: 188, x_count: 6 }] });
+  check('match totals only count scored stages', part.score === 283 && part.max === 300 && part.x === 9 && part.scored === 2 && !part.complete && Math.abs(part.pct - 94.333) < 0.01, part);
+  const full = mt.matchTotals({ stages: [{ shots: 10, score: 0, x_count: 0 }, { shots: 20, score: 200, x_count: 20 }] });
+  check('a zero score still counts as scored', full.complete && full.score === 200 && full.max === 300 && full.x === 20, full);
+  check('an empty match has no percent', mt.matchTotals({ stages: [] }).pct === null && !mt.matchTotals({ stages: [] }).complete);
+
+  const sess = [
+    { id: 1, date: '2026-09-05', distance: 200, distance_unit: 'yd' },
+    { id: 2, date: '2026-09-05', distance: 600, distance_unit: 'yd' },
+    { id: 3, date: '2026-09-06', distance: 600, distance_unit: 'yd' },
+    { id: 4, date: '2026-08-01', distance: 600, distance_unit: 'yd' },
+    { id: 5, date: '2026-09-05', distance: 600, distance_unit: 'yd' },
+  ];
+  const sg = mt.sessionSuggestions(sess, '2026-09-05', new Set([5]), { distance: 600, distance_unit: 'yd' });
+  check('suggestions: within a day of the match, same distance first, taken sessions left out',
+        sg.suggested.map((p) => p.id).join() === '2,1,3' && sg.other.map((p) => p.id).join() === '4', [sg.suggested.map((p) => p.id), sg.other.map((p) => p.id)]);
+  check('suggestions: no match date means no suggestions', mt.sessionSuggestions(sess, '', new Set()).suggested.length === 0);
+  const stg = (d, u) => ({ distance: d, distance_unit: u || 'yd', performance_id: null });
+  const nmcAssign = mt.autoAssignSessions([stg(200), stg(200), stg(300), stg(600)], [
+    { id: 11, date: '2026-09-05', distance: 600, distance_unit: 'yd' }, { id: 12, date: '2026-09-05', distance: 200, distance_unit: 'yd' },
+    { id: 13, date: '2026-09-05', distance: 300, distance_unit: 'yd' }, { id: 14, date: '2026-09-05', distance: 200, distance_unit: 'yd' }], new Set());
+  check('auto-link pairs each stage with a session at its own distance, earliest first', nmcAssign.join() === '12,14,13,11', nmcAssign);
+  const three = mt.autoAssignSessions([stg(600), stg(600), stg(600)], [
+    { id: 22, date: '2026-09-05', distance: 600, distance_unit: 'yd' }, { id: 21, date: '2026-09-05', distance: 600, distance_unit: 'yd' }], new Set());
+  check('auto-link leaves a stage empty when no session fits', three.join() === '21,22,' && three[2] === null, three);
+  const keep = mt.autoAssignSessions([{ ...stg(600), performance_id: 21 }, stg(600)], [
+    { id: 21, date: '2026-09-05', distance: 600, distance_unit: 'yd' }, { id: 22, date: '2026-09-05', distance: 600, distance_unit: 'yd' }], new Set());
+  check('auto-link keeps existing links and does not reuse them', keep.join() === '21,22', keep);
+  check('auto-link skips sessions already in another match', mt.autoAssignSessions([stg(600)], [{ id: 31, date: '2026-09-05', distance: 600, distance_unit: 'yd' }], new Set([31]))[0] === null);
+
+  const stage = (name, d, shots, score, x) => ({ name, distance: d, distance_unit: 'yd', shots, score, x_count: x });
+  const mk = (id, date, course, stages) => ({ id, name: 'M' + id, date, course_name: course, stages });
+  const recs = mt.computeRecords([
+    mk(1, '2026-06-01', 'National Match Course', [stage('SFS', 200, 10, 90, 2), stage('SFP', 600, 20, 180, 5)]),
+    mk(2, '2026-07-01', 'National Match Course', [stage('SFS', 200, 10, 95, 3), stage('SFP', 600, 20, 188, 6)]),
+    mk(3, '2026-08-01', 'President\'s Rifle Course', [stage('SFP', 600, 10, 99, 4), stage('SFS', 200, 10, 95, 5)]),
+    mk(4, '2026-08-15', 'National Match Course', [stage('SFS', 200, 10, 70, 0), stage('SFP', 600, 20, '', '')]),
+  ]);
+  const byKey = (n, d, sh) => recs.stages.find((s) => s.name === n && s.distance === d && s.shots === sh);
+  check('stage records: best score keeps its match', byKey('SFS', 200, 10).best.score === 95 && byKey('SFS', 200, 10).best.x === 5 && byKey('SFS', 200, 10).best.matchName === 'M3', byKey('SFS', 200, 10));
+  check('stage records: equal scores are split by X count', byKey('SFS', 200, 10).best.x === 5);
+  check('stage records: 20-shot and 10-shot 600 yd stages are kept apart', byKey('SFP', 600, 20).count === 2 && byKey('SFP', 600, 10).count === 1);
+  check('stage records: average, last and series', Math.abs(byKey('SFP', 600, 20).avg - 184) < 1e-9 && byKey('SFP', 600, 20).last.score === 188 && byKey('SFP', 600, 20).series.length === 2);
+  check('stage records: unscored stages are ignored', byKey('SFS', 200, 10).count === 4 && recs.stages.every((s) => s.count > 0));
+  const nm = recs.courses.find((c) => c.name === 'National Match Course');
+  check('course records: only fully scored matches count', nm.count === 2 && nm.best.matchName === 'M2' && Math.abs(nm.best.pct - 94.333) < 0.01, nm);
+  check('course records: average and best X', Math.abs(nm.avgPct - ((270 / 300 * 100) + (283 / 300 * 100)) / 2) < 1e-9 && nm.avgX === 8, nm);
+
   return { log, passed, failed, total: passed + failed };
 }
 

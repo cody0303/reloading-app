@@ -19,6 +19,21 @@ LOAD_COLUMNS = [
     "annealed","primer","base_to_ogive"
 ]
 
+# Highpower courses of fire (stage = name, distance, shots; 10 points a shot, X counted separately).
+# These only seed an empty courses table; edit them in Settings.
+def _stage(name, dist, shots):
+    return {"name": name, "distance": dist, "distance_unit": "yd", "shots": shots}
+
+_SFS, _RFSIT, _RFP, _SFP = "Slow Fire Standing", "Rapid Fire Sitting", "Rapid Fire Prone", "Slow Fire Prone"
+DEFAULT_COURSES = [
+    ("Highpower Rifle Standard Course", [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20), _stage(_RFP, 300, 20), _stage(_SFP, 600, 20)]),
+    ("Highpower Rifle Long Course",     [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20), _stage(_RFP, 300, 20), _stage(_SFP, 600, 40)]),
+    ("National Match Course",           [_stage(_SFS, 200, 10), _stage(_RFSIT, 200, 10), _stage(_RFP, 300, 10), _stage(_SFP, 600, 20)]),
+    ("President's Rifle Course",        [_stage(_SFS, 200, 10), _stage(_RFP, 300, 10), _stage(_SFP, 600, 10)]),
+    ("Mid-Range 300/500/600 Match",     [_stage(_SFP, 300, 20), _stage(_SFP, 500, 20), _stage(_SFP, 600, 20)]),
+    ("Mid-Range 3x600 Match",           [_stage(_SFP, 600, 20), _stage(_SFP, 600, 20), _stage(_SFP, 600, 20)]),
+]
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -107,7 +122,44 @@ def init_db():
             sm_idx INTEGER,
             FOREIGN KEY(performance_id) REFERENCES performance(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS courses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            stages TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE TABLE IF NOT EXISTS matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            date TEXT,
+            location TEXT,
+            entry_type TEXT,
+            course_id INTEGER,
+            course_name TEXT,
+            firearm_id INTEGER,
+            notes TEXT,
+            FOREIGN KEY(firearm_id) REFERENCES firearms(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS match_stages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER NOT NULL,
+            idx INTEGER,
+            name TEXT NOT NULL,
+            distance REAL,
+            distance_unit TEXT DEFAULT 'yd',
+            shots INTEGER NOT NULL,
+            score INTEGER,
+            x_count INTEGER,
+            performance_id INTEGER,
+            FOREIGN KEY(match_id) REFERENCES matches(id) ON DELETE CASCADE,
+            FOREIGN KEY(performance_id) REFERENCES performance(id) ON DELETE SET NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_match_stage_session
+            ON match_stages(performance_id) WHERE performance_id IS NOT NULL;
     """)
+    # Courses of fire: seeded once, then yours to edit in Settings
+    if not conn.execute("SELECT 1 FROM courses LIMIT 1").fetchone():
+        for cname, stages in DEFAULT_COURSES:
+            conn.execute("INSERT INTO courses(name, stages) VALUES(?,?)", (cname, json.dumps(stages)))
     # Default settings
     defaults = {
         "label_width_mm": "50",
@@ -622,6 +674,200 @@ def _refresh_group_angles(conn, pid):
 def delete_performance(pid):
     conn = get_db()
     conn.execute("DELETE FROM performance WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+# ── Courses of fire ───────────────────────────────────────────
+def _to_int(v):
+    try:
+        if v is None or v == "": return None
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+def _clean_course_stages(stages):
+    """Stage list from the client -> (clean list, None) or (None, error text)."""
+    if not isinstance(stages, list):
+        return None, "stages must be a list"
+    out = []
+    for st in stages:
+        st = st or {}
+        name = str(st.get("name") or "").strip()
+        shots = _to_int(st.get("shots"))
+        if not name:
+            return None, "every stage needs a name"
+        if not shots or shots < 1:
+            return None, f"stage '{name}' needs a shot count above 0"
+        out.append({"name": name, "distance": _to_float(st.get("distance")) or None,
+                    "distance_unit": "m" if st.get("distance_unit") == "m" else "yd", "shots": shots})
+    return out, None
+
+def _course_json(row):
+    d = dict(row)
+    d["stages"] = json.loads(d["stages"] or "[]")
+    return d
+
+@app.route("/api/courses")
+def list_courses():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM courses ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([_course_json(r) for r in rows])
+
+def _save_course(cid):
+    data = request.json or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    stages, err = _clean_course_stages(data.get("stages", []))
+    if err:
+        return jsonify({"error": err}), 400
+    conn = get_db()
+    try:
+        if cid is None:
+            cid = conn.execute("INSERT INTO courses(name, stages) VALUES(?,?)", (name, json.dumps(stages))).lastrowid
+        else:
+            conn.execute("UPDATE courses SET name=?, stages=? WHERE id=?", (name, json.dumps(stages), cid))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "a course with that name already exists"}), 409
+    row = conn.execute("SELECT * FROM courses WHERE id=?", (cid,)).fetchone()
+    conn.close()
+    return jsonify(_course_json(row)), (201 if request.method == "POST" else 200)
+
+@app.route("/api/courses", methods=["POST"])
+def create_course():
+    return _save_course(None)
+
+@app.route("/api/courses/<int:cid>", methods=["PUT"])
+def update_course(cid):
+    return _save_course(cid)
+
+@app.route("/api/courses/<int:cid>", methods=["DELETE"])
+def delete_course(cid):
+    # Matches keep their own copy of the stages and the course name, so they are unaffected
+    conn = get_db()
+    conn.execute("DELETE FROM courses WHERE id=?", (cid,))
+    conn.execute("UPDATE matches SET course_id=NULL WHERE course_id=?", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+# ── Matches ───────────────────────────────────────────────────
+def _clean_match_stages(stages):
+    """Validate a match's stage rows. Score is at most 10 a shot; X count at most the shot count."""
+    if not isinstance(stages, list):
+        return None, "stages must be a list"
+    out, seen = [], set()
+    for st in stages:
+        st = st or {}
+        name = str(st.get("name") or "").strip()
+        shots = _to_int(st.get("shots"))
+        if not name:
+            return None, "every stage needs a name"
+        if not shots or shots < 1:
+            return None, f"stage '{name}' needs a shot count above 0"
+        score, xc = _to_int(st.get("score")), _to_int(st.get("x_count"))
+        if score is not None and not 0 <= score <= shots * 10:
+            return None, f"stage '{name}': score must be between 0 and {shots * 10}"
+        if xc is not None and not 0 <= xc <= shots:
+            return None, f"stage '{name}': X count must be between 0 and {shots}"
+        pid = _to_int(st.get("performance_id"))
+        if pid is not None:
+            if pid in seen:
+                return None, "a session can only be linked to one stage"
+            seen.add(pid)
+        out.append({"name": name, "distance": _to_float(st.get("distance")) or None,
+                    "distance_unit": "m" if st.get("distance_unit") == "m" else "yd",
+                    "shots": shots, "score": score, "x_count": xc, "performance_id": pid})
+    return out, None
+
+def _match_json(conn, row):
+    m = dict(row)
+    m["stages"] = [dict(r) for r in conn.execute("""
+        SELECT s.*, p.lot_number, p.date AS session_date, p.score_text, p.score_total, p.use_score
+        FROM match_stages s LEFT JOIN performance p ON p.id = s.performance_id
+        WHERE s.match_id=? ORDER BY s.idx, s.id""", (m["id"],)).fetchall()]
+    f = conn.execute("SELECT name FROM firearms WHERE id=?", (m["firearm_id"],)).fetchone() if m["firearm_id"] else None
+    m["firearm_name"] = f["name"] if f else None
+    return m
+
+def _write_match(conn, mid, data, stages):
+    cols = ["name", "date", "location", "entry_type", "course_id", "course_name", "firearm_id", "notes"]
+    vals = {c: (data.get(c) or None) for c in cols}
+    vals["course_id"] = _to_int(vals["course_id"])
+    vals["firearm_id"] = _to_int(vals["firearm_id"])
+    if vals["course_id"] and not vals["course_name"]:
+        c = conn.execute("SELECT name FROM courses WHERE id=?", (vals["course_id"],)).fetchone()
+        vals["course_name"] = c["name"] if c else None
+    if mid is None:
+        marks = ",".join(["?"] * len(cols))
+        mid = conn.execute(f"INSERT INTO matches ({','.join(cols)}) VALUES ({marks})", list(vals.values())).lastrowid
+    else:
+        sets = ", ".join(c + "=?" for c in cols)
+        conn.execute(f"UPDATE matches SET {sets} WHERE id=?", [*vals.values(), mid])
+        conn.execute("DELETE FROM match_stages WHERE match_id=?", (mid,))
+    for i, st in enumerate(stages):
+        conn.execute(
+            "INSERT INTO match_stages (match_id, idx, name, distance, distance_unit, shots, score, x_count, performance_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (mid, i, st["name"], st["distance"], st["distance_unit"], st["shots"], st["score"], st["x_count"], st["performance_id"]))
+    return mid
+
+def _save_match(mid):
+    data = request.json or {}
+    if not str(data.get("name") or "").strip():
+        return jsonify({"error": "name is required"}), 400
+    conn = get_db()
+    stages = data.get("stages")
+    if stages is None:       # new match from a course: copy that course's stages
+        c = conn.execute("SELECT name, stages FROM courses WHERE id=?", (_to_int(data.get("course_id")),)).fetchone()
+        stages = json.loads(c["stages"]) if c else []
+    stages, err = _clean_match_stages(stages)
+    if err:
+        conn.close()
+        return jsonify({"error": err}), 400
+    # A session belongs to at most one match
+    for st in stages:
+        if st["performance_id"] is None:
+            continue
+        other = conn.execute("SELECT m.name FROM match_stages s JOIN matches m ON m.id=s.match_id "
+                             "WHERE s.performance_id=? AND s.match_id IS NOT ?", (st["performance_id"], mid)).fetchone()
+        if other:
+            conn.close()
+            return jsonify({"error": f"that session is already part of '{other['name']}'"}), 409
+    try:
+        mid = _write_match(conn, mid, data, stages)
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 400
+    out = _match_json(conn, conn.execute("SELECT * FROM matches WHERE id=?", (mid,)).fetchone())
+    conn.close()
+    return jsonify(out), (201 if request.method == "POST" else 200)
+
+@app.route("/api/matches")
+def list_matches():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM matches ORDER BY date DESC, id DESC").fetchall()
+    out = [_match_json(conn, r) for r in rows]
+    conn.close()
+    return jsonify(out)
+
+@app.route("/api/matches", methods=["POST"])
+def create_match():
+    return _save_match(None)
+
+@app.route("/api/matches/<int:mid>", methods=["PUT"])
+def update_match(mid):
+    return _save_match(mid)
+
+@app.route("/api/matches/<int:mid>", methods=["DELETE"])
+def delete_match(mid):
+    conn = get_db()
+    conn.execute("DELETE FROM matches WHERE id=?", (mid,))
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
