@@ -51,7 +51,17 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .nav-link .mi{font-size:18px}
 .nav-link:hover{background:var(--sfv);color:var(--os)}
 .nav-link.active{background:var(--pc);color:var(--p)}
-@media(max-width:600px){.nav-link span.lbl{display:none}}
+/* Phones: six tabs plus export/import have to fit in the width, so icons only, no title, tighter spacing */
+@media(max-width:600px){
+  .nav-link span.lbl{display:none}
+  .logo-text{display:none}
+  .nav{padding:0 4px;gap:0}
+  .logo{padding:0 4px}
+  .nav-links{margin-left:2px;gap:0}
+  .nav-link{padding:6px 8px}
+  .nav-end{gap:0}
+}
+@media(max-width:360px){.nav-link{padding:6px 5px}}
 .nav-end{margin-left:auto;display:flex;gap:2px;align-items:center}
 .icon-btn{width:38px;height:38px;border-radius:50%;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--osv);transition:background .15s,color .15s}
 .icon-btn:hover{background:var(--sfv);color:var(--p)}
@@ -93,6 +103,33 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .sg-in{height:36px;width:100%;background:var(--sf);border:1px solid var(--ol);border-radius:var(--rsm);padding:0 8px;font-family:'Roboto',sans-serif;font-size:13px;color:var(--os);outline:none;min-width:0}
 [data-theme=dark] .sg-in{background:var(--sf2)}
 .sg-in:focus{border-color:var(--p)}
+.sg-title{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--os)}
+.sg-title b{flex:1;font-weight:500}
+.sg-title span{color:var(--osv)}
+
+/* Matches: cards on phones, tables from 701px up */
+.m-cards,.rec-cards{display:none}
+@media(max-width:700px){
+  .m-cards,.rec-cards{display:flex;flex-direction:column;gap:10px}
+  .m-table,.rec-table{display:none}
+  #mg-totals{flex:1 1 100%}
+  #match-overlay .mfooter{gap:8px}
+}
+.mc{background:var(--sf);border:1px solid var(--olv);border-radius:var(--rlg);box-shadow:var(--s1);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.mc-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.mc-name{font-weight:500;font-size:15px;color:var(--os)}
+.mc-date{font-size:12px;color:var(--osv);font-family:'Roboto Mono',monospace;white-space:nowrap}
+.mc-sub{font-size:12px;color:var(--osv)}
+.mc-score{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.mc-big{font-size:22px;font-weight:500;color:var(--os)}
+.mc-small{font-size:13px;color:var(--osv)}
+.mc-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--osv)}
+.mc-stats b{color:var(--os);font-weight:500}
+.mc-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--osv)}
+.rec-goto{color:var(--p)}
+.mc .rec-goto,.rec-table .rec-goto{display:inline-flex;vertical-align:middle}
+@keyframes rowflash{0%,55%{background:var(--pc)}100%{background:transparent}}
+tr.flash td{animation:rowflash 2.6s}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead{position:sticky;top:0;z-index:10;background:var(--sf)}
 th{padding:10px 14px;text-align:left;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--osv);cursor:pointer;user-select:none;border-bottom:2px solid var(--olv);white-space:nowrap;transition:background .15s,color .15s}
@@ -433,7 +470,8 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   </div>
   <div style="margin:0 12px 80px">
     <div id="matches-list-wrap">
-      <div class="card table-wrap">
+      <div class="m-cards" id="matches-cards"></div>
+      <div class="card table-wrap m-table">
         <table>
           <thead><tr>
             <th style="cursor:default">Date</th><th style="cursor:default">Match</th><th style="cursor:default">Course</th>
@@ -826,6 +864,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
   </div>
   <div class="mfooter" style="align-items:center;flex-wrap:wrap">
     <div id="mg-totals" style="flex:1;min-width:140px;font-size:13px;color:var(--os)"></div>
+    <button class="btn btn-text" id="mg-delete-btn" style="color:var(--err);display:none" onclick="deleteMatchFromModal()"><span class="mi material-icons-round">delete_outline</span>Delete</button>
     <button class="btn btn-tonal" onclick="closeModal('match-overlay')">Cancel</button>
     <button class="btn btn-filled" id="mg-save-btn" onclick="saveMatch()">
       <span class="mi material-icons-round">save</span><span id="mg-save-text">Add Match</span>
@@ -1106,12 +1145,13 @@ let loadsDebounce, perfDebounce;
 // ══════════════════════════════════════════════════════════════
 // NAVIGATION
 // ══════════════════════════════════════════════════════════════
-function navigate(page) {
+function navigate(page,skipFetch) {
   if(!document.getElementById('page-'+page)) page='loads';
   try{ history.replaceState(null,'','#'+page); }catch(e){}   // so a refresh stays on this tab
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(l=>l.classList.toggle('active',l.dataset.page===page));
   document.getElementById('page-'+page).classList.add('active');
+  if(skipFetch) return;
   if(page==='loads')       fetchLoads();
   if(page==='inventory')   fetchInventory();
   if(page==='firearms')    fetchFirearms();
@@ -2340,8 +2380,9 @@ function pfUpdateFromSelection(){
     // Clear stat fields if nothing selected
     ['pf-vel','pf-sd','pf-es','pf-shots','pf-group','pf-group-x','pf-group-y'].forEach(id=>document.getElementById(id).value='');
   }
+  const sc=importScore(session,sel);
   const statsEl=document.getElementById('pf-live-stats');
-  if(statsEl) statsEl.innerHTML=statsHtml;
+  if(statsEl) statsEl.innerHTML=(sc?importScoreSpans(sc):'')+statsHtml;
 }
 
 // ── Chronograph (Garmin CSV) → muzzle velocity ───────────────────
@@ -3275,7 +3316,7 @@ function computeRecords(matches){
       let r=st.get(k);
       if(!r){ r={key:k,name:s.name,distance:+s.distance||0,unit:s.distance_unit||'yd',shots:+s.shots,count:0,sum:0,xsum:0,best:null,bestX:null,last:null,series:[]}; st.set(k,r); }
       const sc=+s.score, x=(s.x_count==null||s.x_count==='')?0:+s.x_count;
-      const rec={score:sc,x,date:m.date,matchId:m.id,matchName:m.name};
+      const rec={score:sc,x,date:m.date,matchId:m.id,matchName:m.name,pid:s.performance_id||null};
       r.count++; r.sum+=sc; r.xsum+=x; r.last=rec; r.series.push(sc/(r.shots*10)*100);
       if(!r.best||sc>r.best.score||(sc===r.best.score&&x>r.best.x)) r.best=rec;
       if(!r.bestX||x>=r.bestX.x) r.bestX=rec;            // ties show the most recent
@@ -3330,12 +3371,28 @@ function setMatchView(v){
   document.getElementById('mv-records').classList.toggle('active',v==='records');
 }
 
+function matchCard(m,t){
+  const gun=m.firearm_name?escHtml(m.firearm_name):'';
+  const c=document.createElement('div');
+  c.className='mc';
+  c.onclick=()=>editMatch(m.id);
+  c.innerHTML=`
+    <div class="mc-top"><span class="mc-name">${escHtml(m.name)}</span><span class="mc-date">${escHtml(m.date||'—')}</span></div>
+    <div class="mc-sub">${escHtml(m.course_name||'Ad hoc')}${m.entry_type?' · '+escHtml(m.entry_type):''}</div>
+    ${t.scored?`<div class="mc-score"><span class="mc-big">${t.score} / ${t.max}</span><span class="mc-small">${t.x}X · ${t.pct.toFixed(1)}%</span>${t.complete?'':'<span class="chip chip-warn">partial</span>'}</div>`
+      :'<div class="mc-small">No scores yet</div>'}
+    ${gun||m.location?`<div class="mc-foot"><span>${gun}</span><span>${m.location?escHtml(m.location):''}</span></div>`:''}`;
+  return c;
+}
 function renderMatches(){
   const tb=document.getElementById('matches-body');
+  const cards=document.getElementById('matches-cards');
   document.getElementById('matches-empty').style.display=allMatches.length?'none':'flex';
-  tb.innerHTML='';
+  tb.innerHTML=''; cards.innerHTML='';
+  if(!allMatches.length) cards.innerHTML='<div class="no-data" style="display:flex"><span class="mi material-icons-round">emoji_events</span><p>No matches yet</p></div>';
   allMatches.forEach(m=>{
     const t=matchTotals(m);
+    cards.appendChild(matchCard(m,t));
     const tr=document.createElement('tr');
     tr.style.cursor='pointer';
     tr.onclick=()=>editMatch(m.id);
@@ -3353,6 +3410,31 @@ function renderMatches(){
   });
 }
 
+// Jump to a session in the Performance tab: clear its filters so the row is there, scroll to it, flash it.
+async function gotoSession(id){
+  // Any session the viewer can show (ShotMarker shots and/or Garmin data) opens in it right here, and closing
+  // it lands back on Records. A session with neither would only get a ShotMarker upload prompt, so that one
+  // goes to its Performance row instead.
+  const p=allPerf.find(x=>x.id===id);
+  let viewable=!!(p&&p.face_id);                       // the list already says whether ShotMarker shots are saved
+  if(!viewable){
+    try{ viewable=(await api('GET',`/api/performance/${id}/chrono`)).length>0; }catch(e){}
+  }
+  if(viewable){ openShotViewer(id); return; }
+  document.getElementById('p-lot').value=''; document.getElementById('p-gun').value='';
+  navigate('performance',true);
+  await fetchPerformance();
+  const tr=document.querySelector(`#perf-body tr[data-id="${id}"]`);
+  if(!tr){ snack('That session is no longer in the list','warn'); return; }
+  tr.scrollIntoView({block:'center'});
+  tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+  setTimeout(()=>tr.classList.remove('flash'),2800);
+}
+// Small "open this session" button, only for scores that came from a saved session
+function gotoBtn(pid){
+  return pid?` <button class="icon-btn rec-goto" title="Open this session" onclick="gotoSession(${pid})" style="width:24px;height:24px"><span class="mi material-icons-round" style="font-size:16px">my_location</span></button>`:'';
+}
+
 function renderRecords(){
   const wrap=document.getElementById('records-body');
   const R=computeRecords(allMatches);
@@ -3362,27 +3444,42 @@ function renderRecords(){
   }
   const d=s=>s?escHtml(s):'—';
   const pct=v=>v==null?'—':v.toFixed(1)+'%';
-  const courses=R.courses.length?`
+  const th=t=>`<th style="cursor:default">${t}</th>`;
+  const courseTable=R.courses.length?`
     <div class="card table-wrap" style="margin-bottom:14px;min-height:0;max-height:none"><table>
-      <thead><tr><th style="cursor:default">Course</th><th style="cursor:default">Matches</th><th style="cursor:default">Best</th><th style="cursor:default">Average</th><th style="cursor:default">Last 3</th><th style="cursor:default">Avg X</th><th style="cursor:default">Trend</th></tr></thead>
+      <thead><tr>${['Course','Matches','Best','Average','Last 3','Avg X','Trend'].map(th).join('')}</tr></thead>
       <tbody>${R.courses.map(c=>`<tr style="cursor:default">
         <td><strong>${escHtml(c.name)}</strong></td><td class="c-num">${c.count}</td>
         <td class="c-num">${c.best.score} / ${c.best.max} · ${c.best.x}X<div style="font-size:11px;color:var(--osv)">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div></td>
         <td class="c-num">${pct(c.avgPct)}</td><td class="c-num">${pct(c.last3Pct)}</td>
         <td class="c-num">${c.avgX.toFixed(1)}</td><td>${sparkSvg(c.pcts)}</td></tr>`).join('')}</tbody>
     </table></div>`:'';
-  const stages=`
+  const stageTable=`
     <div class="card table-wrap" style="min-height:0;max-height:none"><table>
-      <thead><tr><th style="cursor:default">Stage</th><th style="cursor:default">Shots</th><th style="cursor:default">Best score</th><th style="cursor:default">Best X</th><th style="cursor:default">Average</th><th style="cursor:default">Last</th><th style="cursor:default">Times</th><th style="cursor:default">Trend</th></tr></thead>
+      <thead><tr>${['Stage','Shots','Best score','Best X','Average','Last','Times','Trend'].map(th).join('')}</tr></thead>
       <tbody>${R.stages.map(s=>`<tr style="cursor:default">
         <td><strong>${escHtml(fmtStage(s))}</strong></td><td class="c-num">${s.shots}</td>
-        <td class="c-num">${s.best.score} · ${s.best.x}X<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
-        <td class="c-num">${s.bestX.x}X<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
+        <td class="c-num">${s.best.score} · ${s.best.x}X${gotoBtn(s.best.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
+        <td class="c-num">${s.bestX.x}X${gotoBtn(s.bestX.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
         <td class="c-num">${s.avg.toFixed(1)} · ${s.avgX.toFixed(1)}X</td>
         <td class="c-num">${s.last.score} · ${s.last.x}X</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
     </table></div>`;
-  wrap.innerHTML=(courses?'<div class="fl" style="margin:0 2px 6px">By course</div>'+courses:'')
-    +'<div class="fl" style="margin:0 2px 6px">Personal bests by stage</div>'+stages;
+  const courseCards=R.courses.map(c=>`
+    <div class="mc">
+      <div class="mc-top"><span class="mc-name">${escHtml(c.name)}</span><span class="mc-small">${c.count} match${c.count===1?'':'es'}</span></div>
+      <div class="mc-score"><span class="mc-big">${c.best.score} / ${c.best.max}</span><span class="mc-small">${c.best.x}X · best</span></div>
+      <div class="mc-sub">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div>
+      <div class="mc-foot"><div class="mc-stats"><span>Avg <b>${pct(c.avgPct)}</b></span><span>Last 3 <b>${pct(c.last3Pct)}</b></span><span>Avg X <b>${c.avgX.toFixed(1)}</b></span></div>${sparkSvg(c.pcts)}</div>
+    </div>`).join('');
+  const stageCards=R.stages.map(s=>`
+    <div class="mc">
+      <div class="mc-top"><span class="mc-name">${escHtml(fmtStage(s))}</span><span class="mc-small">${s.shots} shots</span></div>
+      <div class="mc-score"><span class="mc-big">${s.best.score}</span><span class="mc-small">${s.best.x}X · best${gotoBtn(s.best.pid)}</span></div>
+      <div class="mc-sub">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div>
+      <div class="mc-foot"><div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b></span><span>Shot <b>${s.count}×</b></span></div>${sparkSvg(s.series)}</div>
+    </div>`).join('');
+  wrap.innerHTML=(R.courses.length?`<div class="fl" style="margin:0 2px 6px">By course</div><div class="rec-table">${courseTable}</div><div class="rec-cards" style="margin-bottom:16px">${courseCards}</div>`:'')
+    +`<div class="fl" style="margin:0 2px 6px">Personal bests by stage</div><div class="rec-table">${stageTable}</div><div class="rec-cards">${stageCards}</div>`;
 }
 
 // ── Match editor ──
@@ -3406,7 +3503,7 @@ function fillMatchLists(){
   sel.innerHTML='<option value="">— select rifle —</option>'+allFirearms.map(f=>`<option value="${f.id}">${escHtml(f.name)}${f.caliber?' ('+escHtml(f.caliber)+')':''}</option>`).join('');
 }
 function cloneCourseStages(c){
-  return c.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,score:'',x_count:'',performance_id:null}));
+  return c.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,score:'',x_count:'',performance_id:null,custom:false}));
 }
 function openMatchModal(){
   matchEditId=null; matchEditCourseName=null;
@@ -3422,6 +3519,7 @@ function openMatchModal(){
   matchStages=c?cloneCourseStages(c):[];
   document.getElementById('match-modal-title').textContent='Add Match';
   document.getElementById('mg-save-text').textContent='Add Match';
+  document.getElementById('mg-delete-btn').style.display='none';
   renderMatchStages();
   openModal('match-overlay');
 }
@@ -3437,9 +3535,10 @@ function editMatch(id){
   document.getElementById('mg-course').value=m.course_id?String(m.course_id):'';
   document.getElementById('mg-firearm').value=m.firearm_id?String(m.firearm_id):'';
   matchStages=m.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,
-    score:s.score==null?'':s.score,x_count:s.x_count==null?'':s.x_count,performance_id:s.performance_id||null}));
+    score:s.score==null?'':s.score,x_count:s.x_count==null?'':s.x_count,performance_id:s.performance_id||null,custom:!m.course_id}));
   document.getElementById('match-modal-title').textContent='Edit: '+m.name;
   document.getElementById('mg-save-text').textContent='Save Changes';
+  document.getElementById('mg-delete-btn').style.display='';
   renderMatchStages();
   openModal('match-overlay');
 }
@@ -3464,25 +3563,36 @@ function mgSessionOptions(i){
 }
 function renderMatchStages(){
   const wrap=document.getElementById('mg-stages');
-  wrap.innerHTML=matchStages.length?matchStages.map((s,i)=>`
+  const rm=i=>`<button class="icon-btn" title="Remove stage" onclick="mgRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>`;
+  wrap.innerHTML=matchStages.length?matchStages.map((s,i)=>{
+    const editing=s.custom||s._edit;
+    // Course stages show as a one-line title; the fields behind them only open for stages you add or choose to edit
+    const head=editing?`
+      <div class="sg-row">
+        <label class="sg-f" style="flex:1 1 150px"><span>Stage</span><input class="sg-in" value="${escHtml(s.name)}" oninput="mgSet(${i},'name',this.value)"></label>
+        <label class="sg-f" style="flex:1 1 72px;max-width:110px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="mgSet(${i},'distance',this.value)"></label>
+        <label class="sg-f" style="flex:0 0 62px"><span>Unit</span><select class="sg-in" onchange="mgSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
+        <label class="sg-f" style="flex:1 1 60px;max-width:90px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="mgSet(${i},'shots',this.value)"></label>
+        ${s.custom?'':`<button class="icon-btn" title="Done editing" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">check</span></button>`}${rm(i)}
+      </div>`:`
+      <div class="sg-title"><b>${escHtml(fmtStage({name:s.name,distance:s.distance,distance_unit:s.distance_unit}))} <span>· ${escHtml(s.shots)} shots</span></b>
+        <button class="icon-btn" title="Edit stage" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>${rm(i)}
+      </div>`;
+    return `
     <div class="sg">
+      ${head}
       <div class="sg-row">
-        <label class="sg-f" style="flex:1 1 180px"><span>Stage</span><input class="sg-in" value="${escHtml(s.name)}" oninput="mgSet(${i},'name',this.value)"></label>
-        <label class="sg-f" style="width:84px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="mgSet(${i},'distance',this.value)"></label>
-        <label class="sg-f" style="width:62px"><span>Unit</span><select class="sg-in" onchange="mgSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
-        <label class="sg-f" style="width:70px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="mgSet(${i},'shots',this.value)"></label>
-        <button class="icon-btn" title="Remove stage" onclick="mgRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
+        <label class="sg-f" style="flex:1 1 100%"><span>Session</span><select class="sg-in" onchange="mgSession(${i},this.value)">${mgSessionOptions(i)}</select></label>
+        <label class="sg-f" style="flex:1 1 90px"><span>Score</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.score)}" oninput="mgSet(${i},'score',this.value)"></label>
+        <label class="sg-f" style="flex:1 1 90px"><span>X</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.x_count)}" oninput="mgSet(${i},'x_count',this.value)"></label>
       </div>
-      <div class="sg-row">
-        <label class="sg-f" style="flex:1 1 220px"><span>Session</span><select class="sg-in" onchange="mgSession(${i},this.value)">${mgSessionOptions(i)}</select></label>
-        <label class="sg-f" style="width:96px"><span>Score</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.score)}" oninput="mgSet(${i},'score',this.value)"></label>
-        <label class="sg-f" style="width:70px"><span>X</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.x_count)}" oninput="mgSet(${i},'x_count',this.value)"></label>
-      </div>
-    </div>`).join(''):'<div style="font-size:13px;color:var(--osv);padding:6px 2px">No stages yet. Pick a course above, or add stages by hand.</div>';
+    </div>`;
+  }).join(''):'<div style="font-size:13px;color:var(--osv);padding:6px 2px">No stages yet. Pick a course above, or add stages by hand.</div>';
   updateMatchTotals();
 }
 function mgSet(i,key,val){ matchStages[i][key]=val; updateMatchTotals(); }
-function mgAddStage(){ matchStages.push({name:'Stage '+(matchStages.length+1),distance:'',distance_unit:'yd',shots:10,score:'',x_count:'',performance_id:null}); renderMatchStages(); }
+function mgAddStage(){ matchStages.push({name:'Stage '+(matchStages.length+1),distance:'',distance_unit:'yd',shots:10,score:'',x_count:'',performance_id:null,custom:true}); renderMatchStages(); }
+function mgToggleEdit(i){ matchStages[i]._edit=!matchStages[i]._edit; renderMatchStages(); }
 function mgRemove(i){ matchStages.splice(i,1); renderMatchStages(); }
 function updateMatchTotals(){
   const t=matchTotals({stages:matchStages});
@@ -3572,9 +3682,12 @@ async function saveMatch(){
   btn.disabled=false;
 }
 async function deleteMatch(id){
-  if(!confirm('Delete this match? Its performance sessions are kept.')) return;
-  try{ await api('DELETE',`/api/matches/${id}`); snack('Deleted','ok'); await fetchMatches(); }
-  catch(e){ snack('Error','err'); }
+  if(!confirm('Delete this match? Its performance sessions are kept.')) return false;
+  try{ await api('DELETE',`/api/matches/${id}`); snack('Deleted','ok'); await fetchMatches(); return true; }
+  catch(e){ snack('Error','err'); return false; }
+}
+async function deleteMatchFromModal(){
+  if(matchEditId&&await deleteMatch(matchEditId)) closeModal('match-overlay');
 }
 
 // ── Course editor (Settings) ──
@@ -4042,7 +4155,20 @@ function smUpdateSelCount(){
   const sig=smShots.filter((_,i)=>smSelected.has(i)&&smShots[i].sighter).length;
   const el=document.getElementById('sm-sel-count');
   if(el) el.textContent=`${rec} record, ${sig} sighters`;
-  smUpdateStats('sm-stats-bar', smShots.filter((_,i)=>smSelected.has(i)&&!smShots[i].sighter));
+  smUpdateStats('sm-stats-bar', smShots.filter((_,i)=>smSelected.has(i)&&!smShots[i].sighter),
+    {score:importScore(smSession,smShots.filter((_,i)=>smSelected.has(i)))});
+}
+
+// Score for an import screen: the one ShotMarker itself reports for the string, and a total for the shots
+// that are ticked. Sighters never count toward either (scoreOf skips them whether or not they are ticked).
+function importScore(session,checkedShots){
+  if(!session) return null;
+  const face=session.face_id;
+  const all=session.group_text||scoreOf(session.shots||[],face);
+  return all?{all,checked:scoreOf(checkedShots,face)}:null;
+}
+function importScoreSpans(sc){
+  return `<span>SM score <b>${escHtml(sc.all)}</b></span><span>Checked <b>${sc.checked?escHtml(sc.checked):'—'}</b></span>`;
 }
 
 function mmToAngular(mm, distYd, unit){
@@ -4066,9 +4192,10 @@ function smUpdateStats(barId, shots, opts={}){
   const bar=document.getElementById(barId); if(!bar) return;
   const withVel=shots.filter(s=>s.v_fps);
   if(!shots.length){
-    bar.innerHTML=(opts.layered&&opts.score)
-      ?`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%"><span><b>0</b> shots</span><span>Score: <b>${opts.score.all}</b></span><span>Checked: <b>—</b></span></div>`
-      :'';
+    bar.innerHTML=!opts.score?''
+      :opts.layered
+        ?`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%"><span><b>0</b> shots</span><span>Score: <b>${escHtml(opts.score.all)}</b></span><span>Checked: <b>—</b></span></div>`
+        :`<span><b>0</b> shots</span>`+importScoreSpans({all:opts.score.all,checked:null});
     return;
   }
 
@@ -4107,7 +4234,7 @@ function smUpdateStats(barId, shots, opts={}){
   if(groupAng!=null)  html+=`<span>Group: <b>${groupAng} ${grpUnit}</b></span>`;
   if(groupXAng!=null) html+=`<span>Grp X: <b>${groupXAng} ${grpUnit}</b></span>`;
   if(groupYAng!=null) html+=`<span>Grp Y: <b>${groupYAng} ${grpUnit}</b></span>`;
-  if(!opts.layered){ bar.innerHTML=html; return; }
+  if(!opts.layered){ bar.innerHTML=html+(opts.score?importScoreSpans(opts.score):''); return; }
 
   if(opts.score){
     html+=`<span>Score: <b>${opts.score.all}</b></span>`;

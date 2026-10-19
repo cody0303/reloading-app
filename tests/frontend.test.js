@@ -47,7 +47,19 @@ function runTests(scripts) {
     return new Function(body)();
   }
   const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
-                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats']);
+                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats', 'importScore']);
+
+  // Import screens: the device's own score next to a total for the ticked shots, sighters never counted
+  const imp = { face_id: 'NRA_MR1', group_text: '191-5X', shots: SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 })) };
+  const impAll = f.importScore(imp, imp.shots);
+  check('import score: SM score and the checked total agree when everything is ticked', impAll.all === '191-5X' && impAll.checked === '191-5X', impAll);
+  const impTicked = f.importScore(imp, imp.shots.slice(2, 12));
+  check('import score: the checked total follows the ticked shots', impTicked.all === '191-5X' && impTicked.checked === '97-4X', impTicked);
+  const impSighters = f.importScore(imp, imp.shots.slice(0, 2));
+  check('import score: sighters ticked on their own score nothing', impSighters.all === '191-5X' && impSighters.checked === null, impSighters);
+  check('import score: ticking the sighters too does not change the total', f.importScore(imp, imp.shots).checked === f.importScore(imp, imp.shots.slice(2)).checked);
+  check('import score: without the device text it is worked out from the shots', f.importScore({ ...imp, group_text: '' }, imp.shots).all === '191-5X');
+  check('import score: nothing to show without scores or a session', f.importScore({ face_id: 'NRA_MR1', shots: [{ score: '' }] }, []) === null && f.importScore(null, []) === null);
 
   // Garmin-only viewer maths: population SD like the Garmin's own summary
   const cs = f.chronoStats([2, 4, 4, 4, 5, 5, 7, 9]);
@@ -178,6 +190,12 @@ function runTests(scripts) {
   check('stage records: 20-shot and 10-shot 600 yd stages are kept apart', byKey('SFP', 600, 20).count === 2 && byKey('SFP', 600, 10).count === 1);
   check('stage records: average, last and series', Math.abs(byKey('SFP', 600, 20).avg - 184) < 1e-9 && byKey('SFP', 600, 20).last.score === 188 && byKey('SFP', 600, 20).series.length === 2);
   check('stage records: unscored stages are ignored', byKey('SFS', 200, 10).count === 4 && recs.stages.every((s) => s.count > 0));
+  const linked = mt.computeRecords([
+    mk(1, '2026-06-01', 'NMC', [{ ...stage('SFP', 600, 20, 180, 5), performance_id: 41 }]),
+    mk(2, '2026-07-01', 'NMC', [{ ...stage('SFP', 600, 20, 185, 5), performance_id: null }]),   // typed in by hand
+  ]).stages[0];
+  check('stage records remember the session a best came from', linked.best.score === 185 && linked.best.pid === null && linked.series.length === 2);
+  check('a best that came from a saved session carries its id', mt.computeRecords([mk(1, '2026-06-01', 'NMC', [{ ...stage('SFP', 600, 20, 190, 6), performance_id: 41 }])]).stages[0].best.pid === 41);
   const nm = recs.courses.find((c) => c.name === 'National Match Course');
   check('course records: only fully scored matches count', nm.count === 2 && nm.best.matchName === 'M2' && Math.abs(nm.best.pct - 94.333) < 0.01, nm);
   check('course records: average and best X', Math.abs(nm.avgPct - ((270 / 300 * 100) + (283 / 300 * 100)) / 2) < 1e-9 && nm.avgX === 8, nm);
