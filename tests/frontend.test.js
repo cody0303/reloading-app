@@ -143,7 +143,7 @@ function runTests(scripts) {
   check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
 
   // 5. Matches: totals, session suggestions, automatic linking, personal bests
-  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'computeRecords']);
+  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'computeRecords']);
   check('X count read from a ShotMarker score', mt.parseXCount('191-5X') === 5 && mt.parseXCount('37-1V') === 1 && mt.parseXCount('95-0X') === 0);
   check('X count: anything else gives null', mt.parseXCount('') === null && mt.parseXCount(null) === null && mt.parseXCount('95') === null && mt.parseXCount('abc') === null);
   const part = mt.matchTotals({ stages: [{ shots: 10, score: 95, x_count: 3 }, { shots: 10, score: '', x_count: '' }, { shots: 20, score: 188, x_count: 6 }] });
@@ -196,6 +196,12 @@ function runTests(scripts) {
   ]).stages[0];
   check('stage records remember the session a best came from', linked.best.score === 185 && linked.best.pid === null && linked.series.length === 2);
   check('a best that came from a saved session carries its id', mt.computeRecords([mk(1, '2026-06-01', 'NMC', [{ ...stage('SFP', 600, 20, 190, 6), performance_id: 41 }])]).stages[0].best.pid === 41);
+  const firing = mt.computeRecords([mk(1, '2026-06-01', 'NMC', [
+    stage('Slow Fire Prone', 600, 20, 180, 5), stage('Rapid Fire Prone', 300, 10, 95, 2), stage('Rapid Fire Sitting', 200, 10, 94, 2),
+    stage('Slow Fire Standing', 200, 10, 90, 1), stage('Slow Fire Prone', 300, 10, 96, 3)])]).stages.map((s) => s.distance + ' ' + s.name);
+  check('stage records: shortest distance first, then firing order (standing, sitting, rapid, slow)',
+        firing.join('|') === '200 Slow Fire Standing|200 Rapid Fire Sitting|300 Rapid Fire Prone|300 Slow Fire Prone|600 Slow Fire Prone', firing);
+  check('stage rank: unknown stage names go last', mt.stageRank('Offhand') === 4 && mt.stageRank('Standing') === 0 && mt.stageRank('Kneeling') === 1);
   const nm = recs.courses.find((c) => c.name === 'National Match Course');
   check('course records: only fully scored matches count', nm.count === 2 && nm.best.matchName === 'M2' && Math.abs(nm.best.pct - 94.333) < 0.01, nm);
   check('course records: average and best X', Math.abs(nm.avgPct - ((270 / 300 * 100) + (283 / 300 * 100)) / 2) < 1e-9 && nm.avgX === 8, nm);

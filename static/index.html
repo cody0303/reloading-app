@@ -123,11 +123,14 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .mc-score{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .mc-big{font-size:22px;font-weight:500;color:var(--os)}
 .mc-small{font-size:13px;color:var(--osv)}
-.mc-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--osv)}
-.mc-stats b{color:var(--os);font-weight:500}
+.mc-stats{display:flex;gap:4px 12px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--osv)}
+.mc-spark{margin-left:auto;align-self:center;line-height:0}
+/* Course chips scroll sideways on a phone instead of wrapping into several rows */
+.chip-row{display:flex;gap:6px;overflow-x:auto;padding:0 2px 8px;margin-bottom:2px;-webkit-overflow-scrolling:touch}
+.chip-row .fchip{flex-shrink:0}.mc-stats b{color:var(--os);font-weight:500}
 .mc-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--osv)}
 .rec-goto{color:var(--p)}
-.mc .rec-goto,.rec-table .rec-goto{display:inline-flex;vertical-align:middle}
+.mc .rec-goto,.rec-table .rec-goto{display:inline-flex;vertical-align:middle;width:20px;height:20px;margin-left:2px}
 @keyframes rowflash{0%,55%{background:var(--pc)}100%{background:transparent}}
 tr.flash td{animation:rowflash 2.6s}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -1544,6 +1547,7 @@ async function fetchAppSettings(){
     labelKey=s.label_key||'';
     settingsCache=s;
     Object.values(COL_TABLES).forEach(t=>t.redraw());
+    if(allMatches.length) renderRecords();            // the saved course chip may only be known now
   }catch(e){}
 }
 function printLabel(id){window.open(`/api/loads/${id}/label?key=${encodeURIComponent(labelKey)}`,'_blank')}
@@ -3306,6 +3310,16 @@ function autoAssignSessions(stages,sessions,taken){
 // Stages are compared across matches by name, distance and shot count (a 20-shot prone at 600 is the same
 // stage in a National Match Course and a Mid-Range match; a 10-shot one is not).
 function stageKey(s){ return `${s.name}|${+s.distance||0}${s.distance_unit||'yd'}|${s.shots}`; }
+// Order stages are fired in at one distance: standing, then sitting, then rapid prone, then slow prone.
+// Anything with another name goes after those, alphabetically.
+function stageRank(name){
+  const n=String(name||'').toLowerCase();
+  if(/stand/.test(n)) return 0;
+  if(/sit|kneel/.test(n)) return 1;
+  if(/rapid/.test(n)) return 2;
+  if(/prone|slow/.test(n)) return 3;
+  return 4;
+}
 function computeRecords(matches){
   const sorted=[...matches].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.id-b.id);
   const st=new Map(), co=new Map();
@@ -3332,7 +3346,7 @@ function computeRecords(matches){
   });
   const avg=a=>a.length?a.reduce((p,q)=>p+q,0)/a.length:null;
   const stages=[...st.values()].map(r=>({...r,avg:r.sum/r.count,avgX:r.xsum/r.count}))
-    .sort((a,b)=>a.distance-b.distance||a.name.localeCompare(b.name)||a.shots-b.shots);
+    .sort((a,b)=>a.distance-b.distance||stageRank(a.name)-stageRank(b.name)||a.name.localeCompare(b.name)||a.shots-b.shots);
   const courses=[...co.values()].map(c=>({...c,avgPct:avg(c.pcts),last3Pct:avg(c.pcts.slice(-3)),avgX:avg(c.xs)}))
     .sort((a,b)=>a.name.localeCompare(b.name));
   return {stages,courses};
@@ -3432,12 +3446,28 @@ async function gotoSession(id){
 }
 // Small "open this session" button, only for scores that came from a saved session
 function gotoBtn(pid){
-  return pid?` <button class="icon-btn rec-goto" title="Open this session" onclick="gotoSession(${pid})" style="width:24px;height:24px"><span class="mi material-icons-round" style="font-size:16px">my_location</span></button>`:'';
+  return pid?`<button class="icon-btn rec-goto" title="Open this session" onclick="gotoSession(${pid})"><span class="mi material-icons-round" style="font-size:16px">my_location</span></button>`:'';
+}
+
+// Course shown in the stage records ('' = all of them). With a course picked, the stage bests, averages,
+// last scores and trends use only matches shot on that course.
+// The pick is remembered in the app settings, so it survives a refresh and is the same on phone and desktop.
+let recCourse=null;                      // null until you pick one in this visit; then the saved choice is used
+function curRecCourse(){ return recCourse!==null?recCourse:(settingsCache.records_course||''); }
+function setRecCourse(name){
+  recCourse=name||'';
+  settingsCache.records_course=recCourse;
+  api('POST','/api/settings',{records_course:recCourse}).catch(()=>snack('Could not save the course choice','err'));
+  renderRecords();
 }
 
 function renderRecords(){
   const wrap=document.getElementById('records-body');
   const R=computeRecords(allMatches);
+  const courseNames=[...new Set(allMatches.filter(m=>m.course_name&&matchTotals(m).scored).map(m=>m.course_name))].sort();
+  let rc=curRecCourse();
+  if(rc&&!courseNames.includes(rc)) rc='';           // a saved course with no scored matches (yet) falls back to All
+  const RS=rc?computeRecords(allMatches.filter(m=>m.course_name===rc)):R;   // stage section only
   if(!R.stages.length){
     wrap.innerHTML='<div class="no-data" style="display:flex"><span class="mi material-icons-round">emoji_events</span><p>Records appear once a match has scores</p></div>';
     return;
@@ -3456,8 +3486,8 @@ function renderRecords(){
     </table></div>`:'';
   const stageTable=`
     <div class="card table-wrap" style="min-height:0;max-height:none"><table>
-      <thead><tr>${['Stage','Shots','Best score','Best X','Average','Last','Times','Trend'].map(th).join('')}</tr></thead>
-      <tbody>${R.stages.map(s=>`<tr style="cursor:default">
+      <thead><tr>${['Stage','Shots','Best score','Best X','Average','Last','Matches','Trend'].map(th).join('')}</tr></thead>
+      <tbody>${RS.stages.map(s=>`<tr style="cursor:default">
         <td><strong>${escHtml(fmtStage(s))}</strong></td><td class="c-num">${s.shots}</td>
         <td class="c-num">${s.best.score} · ${s.best.x}X${gotoBtn(s.best.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
         <td class="c-num">${s.bestX.x}X${gotoBtn(s.bestX.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
@@ -3467,19 +3497,22 @@ function renderRecords(){
   const courseCards=R.courses.map(c=>`
     <div class="mc">
       <div class="mc-top"><span class="mc-name">${escHtml(c.name)}</span><span class="mc-small">${c.count} match${c.count===1?'':'es'}</span></div>
-      <div class="mc-score"><span class="mc-big">${c.best.score} / ${c.best.max}</span><span class="mc-small">${c.best.x}X · best</span></div>
+      <div class="mc-score"><span class="mc-big">${c.best.score} / ${c.best.max}</span><span class="mc-small">${c.best.x}X · best</span><span class="mc-spark">${sparkSvg(c.pcts)}</span></div>
       <div class="mc-sub">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div>
-      <div class="mc-foot"><div class="mc-stats"><span>Avg <b>${pct(c.avgPct)}</b></span><span>Last 3 <b>${pct(c.last3Pct)}</b></span><span>Avg X <b>${c.avgX.toFixed(1)}</b></span></div>${sparkSvg(c.pcts)}</div>
+      <div class="mc-stats"><span>Avg <b>${pct(c.avgPct)}</b></span><span>Last 3 <b>${pct(c.last3Pct)}</b></span><span>Avg X <b>${c.avgX.toFixed(1)}</b></span></div>
     </div>`).join('');
-  const stageCards=R.stages.map(s=>`
+  const stageCards=RS.stages.map(s=>`
     <div class="mc">
       <div class="mc-top"><span class="mc-name">${escHtml(fmtStage(s))}</span><span class="mc-small">${s.shots} shots</span></div>
-      <div class="mc-score"><span class="mc-big">${s.best.score}</span><span class="mc-small">${s.best.x}X · best${gotoBtn(s.best.pid)}</span></div>
+      <div class="mc-score"><span class="mc-big">${s.best.score}</span><span class="mc-small">${s.best.x}X · best${gotoBtn(s.best.pid)}</span><span class="mc-spark">${sparkSvg(s.series)}</span></div>
       <div class="mc-sub">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div>
-      <div class="mc-foot"><div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b>${gotoBtn(s.last.pid)}</span><span>Shot <b>${s.count}×</b></span></div>${sparkSvg(s.series)}</div>
+      <div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b>${gotoBtn(s.last.pid)}</span><span><b>${s.count}</b> match${s.count===1?'':'es'}</span></div>
     </div>`).join('');
   wrap.innerHTML=(R.courses.length?`<div class="fl" style="margin:0 2px 6px">By course</div><div class="rec-table">${courseTable}</div><div class="rec-cards" style="margin-bottom:16px">${courseCards}</div>`:'')
-    +`<div class="fl" style="margin:0 2px 6px">Personal bests by stage</div><div class="rec-table">${stageTable}</div><div class="rec-cards">${stageCards}</div>`;
+    +`<div class="fl" style="margin:0 2px 6px">Personal bests by stage${rc?' · '+escHtml(rc):''}</div>`
+    +(courseNames.length>1?`<div class="chip-row">${['',...courseNames].map(n=>
+        `<button class="fchip${n===rc?' on':''}" data-c="${escHtml(n)}" onclick="setRecCourse(this.dataset.c)">${n?escHtml(n):'All courses'}</button>`).join('')}</div>`:'')
+    +`<div class="rec-table">${stageTable}</div><div class="rec-cards">${stageCards}</div>`;
 }
 
 // ── Match editor ──
