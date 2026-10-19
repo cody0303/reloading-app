@@ -479,7 +479,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
           <thead><tr>
             <th style="cursor:default">Date</th><th style="cursor:default">Match</th><th style="cursor:default">Course</th>
             <th class="col-hide" style="cursor:default">Entry</th><th class="col-hide" style="cursor:default">Rifle</th>
-            <th style="cursor:default">Score</th><th style="cursor:default">X</th><th style="cursor:default">%</th><th style="cursor:default"></th>
+            <th style="cursor:default">Score</th><th style="cursor:default">%</th><th style="cursor:default"></th>
           </tr></thead>
           <tbody id="matches-body"></tbody>
         </table>
@@ -3272,6 +3272,8 @@ function matchTotals(m){
   });
   return {score,max,x,shots,scored,count:st.length,pct:max?score/max*100:null,complete:st.length>0&&scored===st.length};
 }
+// A match score in ShotMarker's style: 95 points and 3 X's is "95-3X"
+function fmtScore(score,x){ return `${score}-${x==null||x===''?0:x}X`; }
 function dayNum(d){
   const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||'');
   return m?Date.UTC(+m[1],+m[2]-1,+m[3])/86400000:null;
@@ -3393,7 +3395,7 @@ function matchCard(m,t){
   c.innerHTML=`
     <div class="mc-top"><span class="mc-name">${escHtml(m.name)}</span><span class="mc-date">${escHtml(m.date||'—')}</span></div>
     <div class="mc-sub">${escHtml(m.course_name||'Ad hoc')}${m.entry_type?' · '+escHtml(m.entry_type):''}</div>
-    ${t.scored?`<div class="mc-score"><span class="mc-big">${t.score} / ${t.max}</span><span class="mc-small">${t.x}X · ${t.pct.toFixed(1)}%</span>${t.complete?'':'<span class="chip chip-warn">partial</span>'}</div>`
+    ${t.scored?`<div class="mc-score"><span class="mc-big">${fmtScore(t.score,t.x)}</span><span class="mc-small">of ${t.max} · ${t.pct.toFixed(1)}%</span>${t.complete?'':'<span class="chip chip-warn">partial</span>'}</div>`
       :'<div class="mc-small">No scores yet</div>'}
     ${gun||m.location?`<div class="mc-foot"><span>${gun}</span><span>${m.location?escHtml(m.location):''}</span></div>`:''}`;
   return c;
@@ -3416,8 +3418,7 @@ function renderMatches(){
       <td>${escHtml(m.course_name||'Ad hoc')}</td>
       <td class="col-hide">${escHtml(m.entry_type||'—')}</td>
       <td class="col-hide">${escHtml(m.firearm_name||'—')}</td>
-      <td class="c-num">${t.scored?`${t.score} / ${t.max}`:'—'}${t.scored&&!t.complete?' <span class="chip chip-warn">partial</span>':''}</td>
-      <td class="c-num">${t.scored?t.x+'X':'—'}</td>
+      <td class="c-num">${t.scored?fmtScore(t.score,t.x):'—'}${t.scored?`<div style="font-size:11px;color:var(--osv)">of ${t.max}</div>`:''}${t.scored&&!t.complete?' <span class="chip chip-warn">partial</span>':''}</td>
       <td class="c-num">${t.pct==null?'—':t.pct.toFixed(1)+'%'}</td>
       <td class="c-act"><button class="icon-btn" title="Delete" onclick="event.stopPropagation();deleteMatch(${m.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button></td>`;
     tb.appendChild(tr);
@@ -3480,7 +3481,7 @@ function renderRecords(){
       <thead><tr>${['Course','Matches','Best','Average','Last 3','Avg X','Trend'].map(th).join('')}</tr></thead>
       <tbody>${R.courses.map(c=>`<tr style="cursor:default">
         <td><strong>${escHtml(c.name)}</strong></td><td class="c-num">${c.count}</td>
-        <td class="c-num">${c.best.score} / ${c.best.max} · ${c.best.x}X<div style="font-size:11px;color:var(--osv)">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div></td>
+        <td class="c-num">${fmtScore(c.best.score,c.best.x)}<div style="font-size:11px;color:var(--osv)">of ${c.best.max} · ${d(c.best.date)} · ${escHtml(c.best.matchName)}</div></td>
         <td class="c-num">${pct(c.avgPct)}</td><td class="c-num">${pct(c.last3Pct)}</td>
         <td class="c-num">${c.avgX.toFixed(1)}</td><td>${sparkSvg(c.pcts)}</td></tr>`).join('')}</tbody>
     </table></div>`:'';
@@ -3489,24 +3490,24 @@ function renderRecords(){
       <thead><tr>${['Stage','Shots','Best score','Best X','Average','Last','Matches','Trend'].map(th).join('')}</tr></thead>
       <tbody>${RS.stages.map(s=>`<tr style="cursor:default">
         <td><strong>${escHtml(fmtStage(s))}</strong></td><td class="c-num">${s.shots}</td>
-        <td class="c-num">${s.best.score} · ${s.best.x}X${gotoBtn(s.best.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
-        <td class="c-num">${s.bestX.x}X${gotoBtn(s.bestX.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
+        <td class="c-num">${fmtScore(s.best.score,s.best.x)}${gotoBtn(s.best.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
+        <td class="c-num">${s.bestX.x}X${gotoBtn(s.bestX.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${fmtScore(s.bestX.score,s.bestX.x)}</div></td>
         <td class="c-num">${s.avg.toFixed(1)} · ${s.avgX.toFixed(1)}X</td>
-        <td class="c-num">${s.last.score} · ${s.last.x}X${gotoBtn(s.last.pid)}</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
+        <td class="c-num">${fmtScore(s.last.score,s.last.x)}${gotoBtn(s.last.pid)}</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
     </table></div>`;
   const courseCards=R.courses.map(c=>`
     <div class="mc">
       <div class="mc-top"><span class="mc-name">${escHtml(c.name)}</span><span class="mc-small">${c.count} match${c.count===1?'':'es'}</span></div>
-      <div class="mc-score"><span class="mc-big">${c.best.score} / ${c.best.max}</span><span class="mc-small">${c.best.x}X · best</span><span class="mc-spark">${sparkSvg(c.pcts)}</span></div>
+      <div class="mc-score"><span class="mc-big">${fmtScore(c.best.score,c.best.x)}</span><span class="mc-small">of ${c.best.max} · best</span><span class="mc-spark">${sparkSvg(c.pcts)}</span></div>
       <div class="mc-sub">${d(c.best.date)} · ${escHtml(c.best.matchName)}</div>
       <div class="mc-stats"><span>Avg <b>${pct(c.avgPct)}</b></span><span>Last 3 <b>${pct(c.last3Pct)}</b></span><span>Avg X <b>${c.avgX.toFixed(1)}</b></span></div>
     </div>`).join('');
   const stageCards=RS.stages.map(s=>`
     <div class="mc">
       <div class="mc-top"><span class="mc-name">${escHtml(fmtStage(s))}</span><span class="mc-small">${s.shots} shots</span></div>
-      <div class="mc-score"><span class="mc-big">${s.best.score}</span><span class="mc-small">${s.best.x}X · best${gotoBtn(s.best.pid)}</span><span class="mc-spark">${sparkSvg(s.series)}</span></div>
+      <div class="mc-score"><span class="mc-big">${fmtScore(s.best.score,s.best.x)}</span><span class="mc-small">best${gotoBtn(s.best.pid)}</span><span class="mc-spark">${sparkSvg(s.series)}</span></div>
       <div class="mc-sub">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div>
-      <div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b>${gotoBtn(s.last.pid)}</span><span><b>${s.count}</b> match${s.count===1?'':'es'}</span></div>
+      <div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${fmtScore(s.last.score,s.last.x)}</b>${gotoBtn(s.last.pid)}</span><span><b>${s.count}</b> match${s.count===1?'':'es'}</span></div>
     </div>`).join('');
   wrap.innerHTML=(R.courses.length?`<div class="fl" style="margin:0 2px 6px">By course</div><div class="rec-table">${courseTable}</div><div class="rec-cards" style="margin-bottom:16px">${courseCards}</div>`:'')
     +`<div class="fl" style="margin:0 2px 6px">Personal bests by stage${rc?' · '+escHtml(rc):''}</div>`
@@ -3630,7 +3631,7 @@ function mgRemove(i){ matchStages.splice(i,1); renderMatchStages(); }
 function updateMatchTotals(){
   const t=matchTotals({stages:matchStages});
   document.getElementById('mg-totals').innerHTML=t.scored
-    ?`<b>${t.score}</b> / ${t.max} · <b>${t.x}</b>X · ${t.pct.toFixed(1)}%${t.complete?'':' <span class="chip chip-warn">partial</span>'}`
+    ?`<b>${fmtScore(t.score,t.x)}</b> of ${t.max} · ${t.pct.toFixed(1)}%${t.complete?'':' <span class="chip chip-warn">partial</span>'}`
     :'No scores entered';
   // Say so when sessions near the date could be linked automatically
   const date=document.getElementById('mg-date').value;

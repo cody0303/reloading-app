@@ -143,7 +143,9 @@ function runTests(scripts) {
   check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
 
   // 5. Matches: totals, session suggestions, automatic linking, personal bests
-  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'computeRecords']);
+  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'fmtScore', 'computeRecords']);
+  check('scores read like ShotMarker: 95 points and 3 X is 95-3X', mt.fmtScore(95, 3) === '95-3X' && mt.fmtScore(194, 12) === '194-12X');
+  check('a missing or empty X count reads 0X', mt.fmtScore(88, null) === '88-0X' && mt.fmtScore(88, '') === '88-0X' && mt.fmtScore(88, 0) === '88-0X');
   check('X count read from a ShotMarker score', mt.parseXCount('191-5X') === 5 && mt.parseXCount('37-1V') === 1 && mt.parseXCount('95-0X') === 0);
   check('X count: anything else gives null', mt.parseXCount('') === null && mt.parseXCount(null) === null && mt.parseXCount('95') === null && mt.parseXCount('abc') === null);
   const part = mt.matchTotals({ stages: [{ shots: 10, score: 95, x_count: 3 }, { shots: 10, score: '', x_count: '' }, { shots: 20, score: 188, x_count: 6 }] });
