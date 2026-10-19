@@ -3462,7 +3462,7 @@ function renderRecords(){
         <td class="c-num">${s.best.score} · ${s.best.x}X${gotoBtn(s.best.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div></td>
         <td class="c-num">${s.bestX.x}X${gotoBtn(s.bestX.pid)}<div style="font-size:11px;color:var(--osv)">${d(s.bestX.date)} · ${s.bestX.score}</div></td>
         <td class="c-num">${s.avg.toFixed(1)} · ${s.avgX.toFixed(1)}X</td>
-        <td class="c-num">${s.last.score} · ${s.last.x}X</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
+        <td class="c-num">${s.last.score} · ${s.last.x}X${gotoBtn(s.last.pid)}</td><td class="c-num">${s.count}</td><td>${sparkSvg(s.series)}</td></tr>`).join('')}</tbody>
     </table></div>`;
   const courseCards=R.courses.map(c=>`
     <div class="mc">
@@ -3476,7 +3476,7 @@ function renderRecords(){
       <div class="mc-top"><span class="mc-name">${escHtml(fmtStage(s))}</span><span class="mc-small">${s.shots} shots</span></div>
       <div class="mc-score"><span class="mc-big">${s.best.score}</span><span class="mc-small">${s.best.x}X · best${gotoBtn(s.best.pid)}</span></div>
       <div class="mc-sub">${d(s.best.date)} · ${escHtml(s.best.matchName)}</div>
-      <div class="mc-foot"><div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b></span><span>Shot <b>${s.count}×</b></span></div>${sparkSvg(s.series)}</div>
+      <div class="mc-foot"><div class="mc-stats"><span>Best X <b>${s.bestX.x}</b>${gotoBtn(s.bestX.pid)}</span><span>Avg <b>${s.avg.toFixed(1)}</b></span><span>Last <b>${s.last.score}</b>${gotoBtn(s.last.pid)}</span><span>Shot <b>${s.count}×</b></span></div>${sparkSvg(s.series)}</div>
     </div>`).join('');
   wrap.innerHTML=(R.courses.length?`<div class="fl" style="margin:0 2px 6px">By course</div><div class="rec-table">${courseTable}</div><div class="rec-cards" style="margin-bottom:16px">${courseCards}</div>`:'')
     +`<div class="fl" style="margin:0 2px 6px">Personal bests by stage</div><div class="rec-table">${stageTable}</div><div class="rec-cards">${stageCards}</div>`;
