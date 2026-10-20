@@ -11,9 +11,13 @@ back, a single-page vanilla JS front end, no build step.
   - Import a **ShotMarker** export (`.tar`) to get shot positions, scores, and a shot viewer with zoom, hover details, and stats for checked shots.
   - Import a **Garmin Xero** CSV for muzzle velocity. Shots are paired with ShotMarker shots by timing (falling back to velocity pattern), and you are asked when the shot counts or timing disagree.
   - Sessions with Garmin data but no ShotMarker string open a speed scatter plot (average and ±1 SD) in place of the target.
-- **Settings** – theme, units, label contents, backup, and the running version.
+- **Matches** – score tracking by course of fire.
+  - Pick a course and its stages are copied into the match (editing a course later never changes matches already entered). Enter a score and an X count per stage by hand, or link a Performance session to the stage to fill them from its ShotMarker score. Scores read like ShotMarker's, for example `95-3X`.
+  - Linking sessions also fills in the match date and the rifle. "Link sessions by date" pairs sessions within a day of the match with stages by distance, and the session pickers list sessions near the match date first. A session belongs to at most one match.
+  - **Records** view: personal bests per stage, course averages and trends. The stage section has course chips (the pick is remembered), and stages sort by distance and then firing order. A best that came from a saved session has a button that opens that session's shots.
+- **Settings** – theme, units, label contents, courses of fire (add, edit, reorder stages; six Highpower and mid-range courses are seeded to start with), backup, and the running version.
 
-Column pickers (per table, separate for wide and narrow screens), inventory filter chips, and the current tab (kept in the URL hash) are remembered by the browser or the database.
+The app is laid out for phones as well as desktop: lists become cards and the tab bar shrinks to icons. Column pickers (per table, separate for wide and narrow screens), inventory filter chips, the Records course chip, and the current tab (kept in the URL hash) are remembered by the browser or the database.
 
 ## Project structure
 
@@ -34,7 +38,8 @@ reloading-app/
 │   └── fixtures/                  # Real ShotMarker export and Garmin CSV used by the tests
 └── .github/workflows/
     ├── ci.yml                     # Tests on pushes to main that touch code
-    └── release.yml                # Tag push: tests, tarball release, image to GHCR, deploy pin
+    ├── release.yml                # Tag push: tests, tarball release, image to GHCR, deploy pin
+    └── prune-images.yml           # Monthly: keep the newest 10 image versions in GHCR
 ```
 
 ## Run locally
@@ -73,6 +78,14 @@ Notes:
 - Images are always pinned to a version, never `:latest`; Portainer CE cannot force a re-pull.
 - The repository and the GHCR package are private, so Portainer needs a GitHub token for cloning and a `ghcr.io` registry login (a token with `read:packages`).
 - The database lives in a Docker volume (`reloading-app-data` on the Portainer host, `reloading-data` in the full compose file). Redeploying keeps it. **Never run `docker compose down -v`**: `-v` deletes the volume and every record in it.
+
+### Image cleanup
+
+`prune-images.yml` runs on the 1st of each month and deletes all but the newest 10 versions of the image in GHCR (private storage is capped at 500 MB). It never deletes the version pinned on the `deploy` branch or the one tagged `latest`, and stops without deleting anything if it can't read the pin. Run it by hand from the Actions tab for a dry run (the checkbox is ticked by default) to see what it would remove. Versions older than the newest 10 can't be rolled back to without a rebuild.
+
+### If Portainer stops updating
+
+Portainer's polling job can stall without logging an error. Check the `deploy` branch's `docker-compose.portainer.yml` on GitHub: if it names the newest version, the pipeline did its part, and `docker restart portainer` (this restarts only Portainer, not your containers) gets it polling again. If the file is behind, look at the release run for the newest tag in the Actions tab.
 
 ### Building from source instead
 
@@ -116,6 +129,8 @@ All endpoints return JSON unless noted.
 | Performance | `GET/POST /api/performance`, `PUT/DELETE /api/performance/{id}` |
 | ShotMarker  | `POST /api/shotmarker/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/shots` |
 | Chronograph | `POST /api/chrono/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/chrono` |
+| Courses     | `GET/POST /api/courses`, `PUT/DELETE /api/courses/{id}` (a course is a name plus a list of stages) |
+| Matches     | `GET/POST /api/matches`, `PUT/DELETE /api/matches/{id}` (each match carries its stages, with scores and linked session ids) |
 | Other       | `GET /api/stats`, `GET /api/distinct/{column}`, `GET/POST /api/settings`, `GET /api/version`, `GET /api/backup`, `GET /api/export`, `POST /api/import` |
 
 `GET /api/loads` accepts `search`, `cartridge`, `powder_type`, `bullet_weight`, `annealed`, `sort` and `dir` (`ASC`/`DESC`).
