@@ -267,6 +267,64 @@ check("deleting a course keeps the match and its stages", mm["course_id"] is Non
 call(ns["delete_match"], None, m1["id"])
 check("deleting a match deletes its stages", con.execute("SELECT COUNT(*) FROM match_stages").fetchone()[0] == 0)
 
+# ── rounds fired per firearm (each firearm entry is a barrel) ──
+request.method = "POST"
+gid = call(ns["create_firearm"], {"name": "Rounds test AR", "barrel_length": 20, "start_rounds": 500, "life_rounds": 3000})["id"]
+other = call(ns["create_firearm"], {"name": "Other rifle"})["id"]
+fa = [f for f in call(ns["list_firearms"]) if f["id"] == gid][0]
+check("a firearm keeps its starting rounds and expected life", fa["start_rounds"] == 500 and fa["life_rounds"] == 3000, fa)
+check("a firearm with nothing fired shows its starting rounds", fa["rounds_total"] == 500, fa["rounds_total"])
+s1 = call(ns["create_performance"], {"lot_number": "R1", "firearm_id": gid, "date": "2026-03-01", "num_shots": 20})["id"]
+for i in range(30):          # 30 saved ShotMarker shots (some sighters) beat the typed 20
+    con.execute("INSERT INTO shotmarker_shots (performance_id, idx, label, score, sighter) VALUES (?,?,?,?,?)", (s1, i, str(i), "10", 1 if i < 2 else 0))
+con.commit()
+s2 = call(ns["create_performance"], {"lot_number": "R2", "firearm_id": gid, "date": "2026-03-05", "num_shots": 10})["id"]
+for i in range(26):          # 26 Garmin shots beat the 10 typed
+    con.execute("INSERT INTO chrono_shots (performance_id, idx, speed_fps) VALUES (?,?,?)", (s2, i, 2600))
+con.commit()
+call(ns["create_performance"], {"lot_number": "R3", "firearm_id": other, "date": "2026-03-06", "num_shots": 99})
+call(ns["create_performance"], {"lot_number": "R4", "firearm_id": gid, "date": "2026-03-07", "num_shots": 12})
+info = ns["firearm_rounds"](gid)
+check("a session counts its largest figure: typed, saved shots with sighters, or Garmin shots",
+      info["sessions"] == 30 + 26 + 12, info["sessions"])
+check("sessions on another rifle don't count, and the total includes the starting rounds", info["total"] == 500 + 68, info["total"])
+
+mm = call(ns["create_match"], {"name": "Rounds match", "date": "2026-03-10", "firearm_id": gid,
+          "stages": [{"name": "A", "shots": 10, "score": 95, "x_count": 2, "performance_id": None},
+                     {"name": "B", "shots": 20, "score": 180, "x_count": 3, "performance_id": s1},
+                     {"name": "C", "shots": 10, "score": None, "x_count": None, "performance_id": None}]})
+info = ns["firearm_rounds"](gid)
+check("a typed match stage counts; a linked or unscored one does not", info["matches"] == 10 and info["total"] == 500 + 68 + 10, info)
+
+lg = call(ns["add_round_log"], {"date": "2026-02-01", "rounds": 100, "note": "load development"}, gid)
+check("a logged entry adds to the total", lg["logged"] == 100 and lg["total"] == 678 and lg["log"][0]["note"] == "load development", lg)
+request.json = {"rounds": 0}
+check("a log entry needs at least one round", ns["add_round_log"](gid)[1] == 400)
+request.json = {"rounds": 5, "date": "yesterday"}
+check("a log entry needs a real date", ns["add_round_log"](gid)[1] == 400)
+call(ns["delete_round_log"], None, lg["log"][0]["id"])
+check("deleting a log entry takes it off the total", ns["firearm_rounds"](gid)["total"] == 578)
+
+fl = {f["id"]: f for f in call(ns["list_firearms"])}
+check("the firearms list carries each rifle's total", fl[gid]["rounds_total"] == 578 and fl[other]["rounds_total"] == 99, (fl[gid]["rounds_total"], fl[other]["rounds_total"]))
+
+request.method = "PUT"
+up = call(ns["update_firearm"], {"name": "Rounds test AR", "start_rounds": 0, "life_rounds": 2500}, gid)
+check("start rounds and life can be changed", up["life_rounds"] == 2500 and ns["firearm_rounds"](gid)["total"] == 78, ns["firearm_rounds"](gid))
+request.json = {"name": "Bad", "life_rounds": -1}
+check("expected life can't be negative", ns["update_firearm"](gid)[1] == 400)
+request.json = {"name": "Bad", "start_rounds": -5}
+check("starting rounds can't be negative", ns["update_firearm"](gid)[1] == 400)
+request.json = {"name": "Bad", "start_rounds": "lots"}
+check("starting rounds must be a number", ns["update_firearm"](gid)[1] == 400)
+check("an unknown rifle is a 404", ns["firearm_rounds"](99999)[1] == 404)
+
+request.method = "POST"
+spare = call(ns["create_firearm"], {"name": "Spare upper"})["id"]
+call(ns["add_round_log"], {"rounds": 5}, spare)
+call(ns["delete_firearm"], None, spare)
+check("deleting a rifle clears its round log", con.execute("SELECT COUNT(*) FROM round_log WHERE firearm_id=?", (spare,)).fetchone()[0] == 0)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

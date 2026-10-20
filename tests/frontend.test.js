@@ -143,7 +143,13 @@ function runTests(scripts) {
   check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
 
   // 5. Matches: totals, session suggestions, automatic linking, personal bests
-  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'fmtScore', 'computeRecords']);
+  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'fmtScore', 'computeRecords', 'lifeStatus', 'fmtN']);
+  check('barrel life: under 80% is fine, 80% warns, 100% and over is an error',
+        mt.lifeStatus(1000, 3000).level === '' && mt.lifeStatus(2400, 3000).level === 'warn' && mt.lifeStatus(2999, 3000).level === 'warn'
+        && mt.lifeStatus(3000, 3000).level === 'err' && mt.lifeStatus(3500, 3000).level === 'err');
+  check('barrel life: the percentage used', Math.abs(mt.lifeStatus(750, 3000).pct - 25) < 1e-9);
+  check('barrel life: with no expected life there is nothing to warn about', mt.lifeStatus(9999, null).pct === null && mt.lifeStatus(9999, 0).level === '');
+  check('round counts get thousands separators', mt.fmtN(1234) === '1,234' && mt.fmtN(0) === '0' && mt.fmtN(null) === '0');
   check('scores read like ShotMarker: 95 points and 3 X is 95-3X', mt.fmtScore(95, 3) === '95-3X' && mt.fmtScore(194, 12) === '194-12X');
   check('a missing or empty X count reads 0X', mt.fmtScore(88, null) === '88-0X' && mt.fmtScore(88, '') === '88-0X' && mt.fmtScore(88, 0) === '88-0X');
   check('X count read from a ShotMarker score', mt.parseXCount('191-5X') === 5 && mt.parseXCount('37-1V') === 1 && mt.parseXCount('95-0X') === 0);

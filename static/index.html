@@ -103,6 +103,10 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .sg-in{height:36px;width:100%;background:var(--sf);border:1px solid var(--ol);border-radius:var(--rsm);padding:0 8px;font-family:'Roboto',sans-serif;font-size:13px;color:var(--os);outline:none;min-width:0}
 [data-theme=dark] .sg-in{background:var(--sf2)}
 .sg-in:focus{border-color:var(--p)}
+.rb{height:8px;border-radius:4px;background:var(--sfv);overflow:hidden}
+.rb>i{display:block;height:100%;background:var(--p);border-radius:4px}
+.rb.warn>i{background:var(--warn)}
+.rb.err>i{background:var(--err)}
 .sg-title{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--os)}
 .sg-title b{flex:1;font-weight:500}
 .sg-title span{color:var(--osv)}
@@ -922,6 +926,8 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <span class="suf" id="fa-twist-unit">in</span>
       <label class="flabel">Twist Rate (one turn per…)</label>
     </div>
+    <div class="field"><input class="finput" type="number" min="0" step="1" id="fa-start" placeholder=" "><label class="flabel">Rounds before tracking</label></div>
+    <div class="field"><input class="finput" type="number" min="1" step="1" id="fa-life" placeholder=" "><label class="flabel">Expected barrel life (rounds)</label></div>
     <div class="field f-full"><textarea class="ftextarea" id="fa-notes" placeholder="Notes…"></textarea></div>
   </div>
   <div class="mfooter">
@@ -930,6 +936,19 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
       <span class="mi material-icons-round">add</span><span id="fa-save-text">Add Firearm</span>
     </button>
   </div>
+</div>
+</div>
+
+<!-- Rounds Modal -->
+<div class="overlay modal-sm" id="rounds-overlay" onclick="overlayClick(event,'rounds-overlay')">
+<div class="modal">
+  <div class="mhdr">
+    <div class="mhdr-icon"><span class="mi material-icons-round">donut_large</span></div>
+    <div class="mtitle" id="rounds-title">Rounds</div>
+    <button class="icon-btn" onclick="closeModal('rounds-overlay')"><span class="mi material-icons-round">close</span></button>
+  </div>
+  <div class="mbody single-col" id="rounds-body"></div>
+  <div class="mfooter"><button class="btn btn-tonal" onclick="closeModal('rounds-overlay')">Close</button></div>
 </div>
 </div>
 
@@ -1872,11 +1891,12 @@ const FIREARM_COLS=[
   {key:'barrel_length',label:'Barrel Length',num:true,cell:r=>r.barrel_length?r.barrel_length+' '+r.barrel_length_unit:'—'},
   {key:'twist_rate',label:'Twist Rate',cell:r=>fmtTwist(r)},
   {key:'manufacturer',label:'Manufacturer',cell:r=>r.manufacturer?escHtml(r.manufacturer):'—'},
+  {key:'rounds',label:'Rounds',num:true,cell:r=>roundsCell(r)},
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
 ];
 const FIREARM_COL_DEFAULTS={
-  wide:['name','caliber','barrel_length','twist_rate','manufacturer'],
-  narrow:['name','caliber','barrel_length','twist_rate'],
+  wide:['name','caliber','barrel_length','twist_rate','manufacturer','rounds'],
+  narrow:['name','caliber','barrel_length','twist_rate','rounds'],
 };
 COL_TABLES.firearms={defs:FIREARM_COLS,defaults:FIREARM_COL_DEFAULTS,redraw:()=>{buildFirearmsHead();if(allFirearms.length) renderFirearms(allFirearms);}};
 
@@ -1902,6 +1922,7 @@ function renderFirearms(rows){
     const tr=document.createElement('tr');
     tr.innerHTML=cols.map(c=>`<td${c.num?' class="c-num"':''}>${c.cell(row)}</td>`).join('')+`
       <td class="c-act">
+        <button class="icon-btn" title="Rounds and barrel life" onclick="openRounds(${row.id})" style="color:var(--p)"><span class="mi material-icons-round" style="font-size:18px">donut_large</span></button>
         <button class="icon-btn" title="Edit" onclick="editFirearm(${row.id})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>
         <button class="icon-btn" title="Delete" onclick="deleteFirearm(${row.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button>
       </td>`;
@@ -1928,7 +1949,7 @@ function openFirearmModal(){
   firearmEditId=null;
   document.getElementById('firearm-modal-title').textContent='Add Firearm';
   document.getElementById('fa-save-text').textContent='Add Firearm';
-  ['fa-name','fa-caliber','fa-manufacturer','fa-barrel','fa-twist','fa-notes'].forEach(id=>document.getElementById(id).value='');
+  ['fa-name','fa-caliber','fa-manufacturer','fa-barrel','fa-twist','fa-start','fa-life','fa-notes'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fa-barrel-unit').value='in';
   syncTwistUnit();
   openModal('firearm-overlay');
@@ -1948,6 +1969,8 @@ function editFirearm(id){
   const twist=parseTwist(row.twist_rate);
   document.getElementById('fa-twist').value=twist;
   if(row.twist_rate&&!twist) snack(`Couldn't read the saved twist "${row.twist_rate}". Please re-enter it.`,'err');
+  document.getElementById('fa-start').value=row.start_rounds||'';
+  document.getElementById('fa-life').value=row.life_rounds||'';
   document.getElementById('fa-notes').value=row.notes||'';
   openModal('firearm-overlay');
 }
@@ -1961,6 +1984,8 @@ async function saveFirearm(){
     barrel_length_unit:document.getElementById('fa-barrel-unit').value,
     twist_rate:'',
     notes:document.getElementById('fa-notes').value,
+    start_rounds:document.getElementById('fa-start').value,
+    life_rounds:document.getElementById('fa-life').value,
   };
   const twistVal=parseFloat(document.getElementById('fa-twist').value);
   if(document.getElementById('fa-twist').value!==''){
@@ -3782,6 +3807,81 @@ async function saveCourse(){
 async function deleteCourse(id){
   if(!confirm('Delete this course? Matches already entered keep their stages and scores.')) return;
   try{ await api('DELETE',`/api/courses/${id}`); snack('Deleted','ok'); await fetchCourses(); }
+  catch(e){ snack('Error','err'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ROUNDS AND BARREL LIFE (each firearm entry is a barrel; a new barrel is a new entry)
+// ══════════════════════════════════════════════════════════════
+let roundsFid=null;
+
+// Share of the expected barrel life used, and how worried to look: warn from 80%, error at 100%.
+function lifeStatus(total,life){
+  if(!life||life<1) return {pct:null,level:''};
+  const pct=total/life*100;
+  return {pct,level:pct>=100?'err':pct>=80?'warn':''};
+}
+function fmtN(n){ return (+n||0).toLocaleString('en-US'); }
+function roundsCell(r){
+  const t=r.rounds_total||0, st=lifeStatus(t,r.life_rounds);
+  const color=st.level==='err'?'var(--err)':st.level==='warn'?'var(--warn)':'';
+  return `<span${color?` style="color:${color};font-weight:500"`:''}>${fmtN(t)}${r.life_rounds?` / ${fmtN(r.life_rounds)}`:''}</span>`;
+}
+
+async function openRounds(id){
+  roundsFid=id;
+  const f=allFirearms.find(x=>x.id===id);
+  document.getElementById('rounds-title').textContent='Rounds · '+(f?f.name:'');
+  document.getElementById('rounds-body').innerHTML='<div class="toggle-sub">Loading…</div>';
+  openModal('rounds-overlay');
+  try{ renderRounds(await api('GET',`/api/firearms/${id}/rounds`)); }
+  catch(e){ document.getElementById('rounds-body').innerHTML='<div class="toggle-sub">Could not load the round count.</div>'; }
+}
+
+function renderRounds(info){
+  const st=lifeStatus(info.total,info.life_rounds);
+  const row=(label,n,sub)=>`<div class="toggle-row"><div><div class="toggle-label">${label}</div>${sub?`<div class="toggle-sub">${sub}</div>`:''}</div><b>${fmtN(n)}</b></div>`;
+  document.getElementById('rounds-body').innerHTML=`
+    <div>
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <span style="font-size:28px;font-weight:500;color:var(--os)">${fmtN(info.total)}</span>
+        <span class="toggle-sub" style="margin:0">${info.life_rounds?`of ${fmtN(info.life_rounds)} expected · ${Math.round(st.pct)}% used`:'rounds · no barrel life set'}</span>
+      </div>
+      ${info.life_rounds?`<div class="rb ${st.level}" style="margin-top:8px"><i style="width:${Math.min(100,st.pct).toFixed(1)}%"></i></div>`:''}
+    </div>
+    <div>
+      ${row('Before tracking',info.start,'Set in the firearm form')}
+      ${row('Performance sessions',info.sessions,'The most of the typed count, saved ShotMarker shots (sighters included) and Garmin shots')}
+      ${row('Matches',info.matches,'Stages scored by hand with no linked session')}
+      ${row('Logged elsewhere',info.logged,'Entries below')}
+    </div>
+    <div>
+      <div class="fl" style="margin-bottom:6px">Rounds fired elsewhere</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label class="sg-f" style="flex:1 1 130px"><span>Date</span><input class="sg-in" type="date" id="rl-date" value="${new Date().toISOString().slice(0,10)}"></label>
+        <label class="sg-f" style="flex:0 0 80px"><span>Rounds</span><input class="sg-in" type="number" min="1" inputmode="numeric" id="rl-rounds"></label>
+        <label class="sg-f" style="flex:2 1 150px"><span>Note</span><input class="sg-in" id="rl-note" placeholder="e.g. load development"></label>
+        <button class="btn btn-filled btn-sm" onclick="addRoundLog()"><span class="mi material-icons-round">add</span>Add</button>
+      </div>
+      <div style="margin-top:8px">${info.log.length?info.log.map(l=>`
+        <div class="toggle-row"><div><div class="toggle-label">${fmtN(l.rounds)} rounds</div>
+          <div class="toggle-sub">${escHtml(l.date||'')}${l.note?' · '+escHtml(l.note):''}</div></div>
+          <button class="icon-btn" title="Remove" onclick="deleteRoundLog(${l.id})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">delete_outline</span></button></div>`).join(''):'<div class="toggle-sub">Nothing logged yet.</div>'}</div>
+    </div>`;
+}
+
+async function addRoundLog(){
+  const rounds=document.getElementById('rl-rounds').value;
+  if(!(+rounds>=1)){ snack('Enter how many rounds','err'); return; }
+  try{
+    renderRounds(await api('POST',`/api/firearms/${roundsFid}/log`,{
+      date:document.getElementById('rl-date').value, rounds, note:document.getElementById('rl-note').value}));
+    snack('Added','ok'); fetchFirearms();
+  }catch(e){ snack('Error: '+apiErr(e),'err'); }
+}
+async function deleteRoundLog(id){
+  if(!confirm('Remove this entry?')) return;
+  try{ renderRounds(await api('DELETE',`/api/round-log/${id}`)); fetchFirearms(); }
   catch(e){ snack('Error','err'); }
 }
 

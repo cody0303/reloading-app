@@ -6,7 +6,7 @@ back, a single-page vanilla JS front end, no build step.
 
 - **Loads** – recipes with lot numbers, searchable and sortable; prints a 50×30 mm PDF label for a Niimbot printer.
 - **Inventory** – bullets, brass, primers and powder; building a load can draw stock down, with a prompt if you are short.
-- **Firearms** – barrel length, twist (entered as `1:x`), caliber, notes.
+- **Firearms** – barrel length, twist (entered as `1:x`), caliber, notes, and a round count for barrel life. Each entry is treated as a barrel (fitting a new barrel means adding a new entry). Its rounds are the ones it had before the app, plus its performance sessions (sighters included), plus match stages scored by hand, plus a log for anything fired elsewhere. Set an expected barrel life and the Rounds column turns amber at 80% and red at 100%.
 - **Performance** – range sessions per lot: velocity, group, score, position, notes.
   - Import a **ShotMarker** export (`.tar`) to get shot positions, scores, and a shot viewer with zoom, hover details, and stats for checked shots.
   - Import a **Garmin Xero** CSV for muzzle velocity. Shots are paired with ShotMarker shots by timing (falling back to velocity pattern), and you are asked when the shot counts or timing disagree.
@@ -126,7 +126,7 @@ All endpoints return JSON unless noted.
 |-------------|-----------|
 | Loads       | `GET/POST /api/loads`, `PUT/DELETE /api/loads/{id}`, `GET /api/loads/new-lot`, `GET /api/loads/{id}/label` (PDF) |
 | Inventory   | `GET/POST /api/inventory`, `PUT/DELETE /api/inventory/{id}`, `POST /api/inventory/{id}/add`, `POST /api/inventory/check`, `GET /api/inventory/names/{category}` |
-| Firearms    | `GET/POST /api/firearms`, `PUT/DELETE /api/firearms/{id}` |
+| Firearms    | `GET/POST /api/firearms`, `PUT/DELETE /api/firearms/{id}`, `GET /api/firearms/{id}/rounds` (breakdown and log), `POST /api/firearms/{id}/log`, `DELETE /api/round-log/{id}` |
 | Performance | `GET/POST /api/performance`, `PUT/DELETE /api/performance/{id}` |
 | ShotMarker  | `POST /api/shotmarker/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/shots` |
 | Chronograph | `POST /api/chrono/upload` (parse only), `GET/POST/DELETE /api/performance/{id}/chrono` |

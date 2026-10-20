@@ -155,6 +155,14 @@ def init_db():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS ux_match_stage_session
             ON match_stages(performance_id) WHERE performance_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS round_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            firearm_id INTEGER NOT NULL,
+            date TEXT,
+            rounds INTEGER NOT NULL,
+            note TEXT,
+            FOREIGN KEY(firearm_id) REFERENCES firearms(id) ON DELETE CASCADE
+        );
     """)
     # Courses of fire: seeded once, then yours to edit in Settings
     if not conn.execute("SELECT 1 FROM courses LIMIT 1").fetchone():
@@ -195,6 +203,8 @@ def init_db():
         ("loads",    "base_to_ogive",  "REAL"),
         ("firearms", "manufacturer",   "TEXT"),
         ("firearms", "barrel_length_unit", "TEXT DEFAULT 'in'"),
+        ("firearms", "start_rounds",       "INTEGER DEFAULT 0"),
+        ("firearms", "life_rounds",        "INTEGER"),
         ("performance", "position",        "TEXT"),
         ("performance", "muzzle_avg_velocity",    "REAL"),
         ("performance", "muzzle_std_dev",         "REAL"),
@@ -501,8 +511,28 @@ def check_inventory():
 def list_firearms():
     conn = get_db()
     rows = conn.execute("SELECT * FROM firearms ORDER BY name").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["rounds_total"] = _firearm_rounds(conn, d["id"], d)["total"]
+        out.append(d)
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(out)
+
+FIREARM_COLS = ["name","caliber","manufacturer","barrel_length","barrel_length_unit","twist_rate","notes",
+                "start_rounds","life_rounds"]
+
+def _clean_round_counts(vals):
+    """start_rounds / life_rounds are optional whole numbers. Returns an error message or None."""
+    for key, label, minimum in (("start_rounds", "rounds before tracking", 0), ("life_rounds", "expected barrel life", 1)):
+        v = vals.get(key)
+        if v is None:
+            continue
+        n = _to_int(v)
+        if n is None or n < minimum:
+            return f"{label} must be a whole number of at least {minimum}"
+        vals[key] = n
+    return None
 
 TWIST_RE = re.compile(r"^1:\d+(\.\d+)?$")
 
@@ -514,10 +544,13 @@ def _bad_twist(vals):
 @app.route("/api/firearms", methods=["POST"])
 def create_firearm():
     data = request.json or {}
-    cols = ["name","caliber","manufacturer","barrel_length","barrel_length_unit","twist_rate","notes"]
+    cols = FIREARM_COLS
     vals = {c: data.get(c) or None for c in cols}
     if _bad_twist(vals):
         return jsonify({"error": "twist_rate must look like 1:10"}), 400
+    err = _clean_round_counts(vals)
+    if err:
+        return jsonify({"error": err}), 400
     conn = get_db()
     cur = conn.execute(
         f"INSERT INTO firearms ({','.join(cols)}) VALUES ({','.join(['?']*len(cols))})",
@@ -531,10 +564,13 @@ def create_firearm():
 @app.route("/api/firearms/<int:fid>", methods=["PUT"])
 def update_firearm(fid):
     data = request.json or {}
-    cols = ["name","caliber","manufacturer","barrel_length","barrel_length_unit","twist_rate","notes"]
+    cols = FIREARM_COLS
     vals = {c: data.get(c) or None for c in cols}
     if _bad_twist(vals):
         return jsonify({"error": "twist_rate must look like 1:10"}), 400
+    err = _clean_round_counts(vals)
+    if err:
+        return jsonify({"error": err}), 400
     sets = ", ".join(f"{c}=?" for c in vals)
     conn = get_db()
     conn.execute(f"UPDATE firearms SET {sets} WHERE id=?", [*vals.values(), fid])
@@ -550,6 +586,80 @@ def delete_firearm(fid):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+# ── Rounds fired ──────────────────────────────────────────────
+# Each firearm entry is a barrel (fitting a new barrel means adding a new entry), so its round count is just:
+# the rounds it had before the app (start_rounds) + its performance sessions (the most of the typed count, the
+# saved ShotMarker shots including sighters, and the Garmin shots) + match stages with a score but no linked
+# session (a linked one is already in its session) + the round log, for anything fired outside the app.
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+def _firearm_rounds(conn, fid, row=None):
+    row = row or conn.execute("SELECT * FROM firearms WHERE id=?", (fid,)).fetchone()
+    sessions = 0
+    for r in conn.execute("""SELECT p.num_shots,
+            (SELECT COUNT(*) FROM shotmarker_shots s WHERE s.performance_id = p.id) AS sm,
+            (SELECT COUNT(*) FROM chrono_shots c WHERE c.performance_id = p.id) AS ch
+        FROM performance p WHERE p.firearm_id=?""", (fid,)).fetchall():
+        sessions += max(_to_int(r["num_shots"]) or 0, r["sm"], r["ch"])
+    matches = conn.execute("""SELECT COALESCE(SUM(s.shots), 0) FROM match_stages s JOIN matches m ON m.id = s.match_id
+        WHERE m.firearm_id=? AND s.performance_id IS NULL AND s.score IS NOT NULL""", (fid,)).fetchone()[0]
+    logged = conn.execute("SELECT COALESCE(SUM(rounds), 0) FROM round_log WHERE firearm_id=?", (fid,)).fetchone()[0]
+    start = (row["start_rounds"] if row else 0) or 0
+    return {"start": start, "sessions": sessions, "matches": matches, "logged": logged,
+            "total": start + sessions + matches + logged}
+
+def _rounds_payload(conn, fid):
+    row = conn.execute("SELECT * FROM firearms WHERE id=?", (fid,)).fetchone()
+    info = _firearm_rounds(conn, fid, row)
+    info["firearm_id"] = fid
+    info["life_rounds"] = row["life_rounds"]
+    info["log"] = [dict(r) for r in conn.execute(
+        "SELECT * FROM round_log WHERE firearm_id=? ORDER BY date DESC, id DESC", (fid,)).fetchall()]
+    return info
+
+@app.route("/api/firearms/<int:fid>/rounds")
+def firearm_rounds(fid):
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM firearms WHERE id=?", (fid,)).fetchone():
+        conn.close()
+        return jsonify({"error": "firearm not found"}), 404
+    out = _rounds_payload(conn, fid)
+    conn.close()
+    return jsonify(out)
+
+@app.route("/api/firearms/<int:fid>/log", methods=["POST"])
+def add_round_log(fid):
+    data = request.json or {}
+    rounds = _to_int(data.get("rounds"))
+    if not rounds or rounds < 1:
+        return jsonify({"error": "rounds must be at least 1"}), 400
+    date = data.get("date") or datetime.date.today().isoformat()
+    if not DATE_RE.match(str(date)):
+        return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+    conn = get_db()
+    if not conn.execute("SELECT 1 FROM firearms WHERE id=?", (fid,)).fetchone():
+        conn.close()
+        return jsonify({"error": "firearm not found"}), 404
+    conn.execute("INSERT INTO round_log (firearm_id, date, rounds, note) VALUES (?,?,?,?)",
+                 (fid, date, rounds, data.get("note") or None))
+    conn.commit()
+    out = _rounds_payload(conn, fid)
+    conn.close()
+    return jsonify(out), 201
+
+@app.route("/api/round-log/<int:lid>", methods=["DELETE"])
+def delete_round_log(lid):
+    conn = get_db()
+    row = conn.execute("SELECT firearm_id FROM round_log WHERE id=?", (lid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "entry not found"}), 404
+    conn.execute("DELETE FROM round_log WHERE id=?", (lid,))
+    conn.commit()
+    out = _rounds_payload(conn, row["firearm_id"])
+    conn.close()
+    return jsonify(out)
 
 # ── Performance ───────────────────────────────────────────────
 @app.route("/api/performance")
