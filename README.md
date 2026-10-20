@@ -76,6 +76,7 @@ Releases are driven by version tags (`v57`, `v58`, …); there is no tarball to 
 
 Notes:
 - Images are always pinned to a version, never `:latest`; Portainer CE cannot force a re-pull.
+- The image has a health check (it asks `/api/stats` every 30 seconds), so Portainer shows the container as healthy or unhealthy. Unhealthy is a warning only: Docker doesn't restart a container for it.
 - The repository and the GHCR package are private, so Portainer needs a GitHub token for cloning and a `ghcr.io` registry login (a token with `read:packages`).
 - The database lives in a Docker volume (`reloading-app-data` on the Portainer host, `reloading-data` in the full compose file). Redeploying keeps it. **Never run `docker compose down -v`**: `-v` deletes the volume and every record in it.
 

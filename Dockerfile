@@ -19,5 +19,10 @@ RUN mkdir -p /data
 
 EXPOSE 5000
 
+# Docker (and Portainer) mark the container unhealthy when the app stops answering. /api/stats runs a few
+# database queries, so it also catches a database that can't be read. The slim image has no curl, hence Python.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/stats', timeout=4)"
+
 # Use gunicorn for production
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "60", "app:app"]
