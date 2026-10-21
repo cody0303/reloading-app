@@ -50,7 +50,7 @@ function runTests(scripts) {
   }
   const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
                   'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats', 'importScore',
-                   'groupCenter', 'centerText', 'stringTiming', 'fmtSec', 'timingVerdict', 'timingSpans', 'timingNote']);
+                   'groupCenter', 'centerText', 'stringTiming', 'fmtSec', 'timingVerdict', 'timingSpans', 'timingNote', 'timesOver']);
 
   // Group center: where the middle of the ticked shots sits against the point of aim
   const gc = f.groupCenter([{ x_mm: 10, y_mm: -20 }, { x_mm: 30, y_mm: -40 }, { x_mm: null, y_mm: 5 }]);
@@ -84,6 +84,25 @@ function runTests(scripts) {
         /First to last shot/.test(sp) && /Stage limit <b>60 s<\/b>/.test(sp) && !/had to come|Over the|recorded/.test(sp)
         && /Over the 60 s limit by 3\.1 s before counting/.test(spOver) && /2 of 10 shots recorded/.test(spShort) && !/recorded/.test(f.timingSpans(t10, 60)));
   check('no limit means no limit text in the timing row', !/Limit|Over the/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 54200 }]), null)) && f.timingSpans(null, 60) === '');
+
+  // Rapid fire: two strings of five with a magazine change between, each against the stage limit
+  const rapid = [0, 3, 6, 9, 12, 52, 55, 58, 61, 64].map(x => ({ ts: x * 1000 }));
+  const flat = f.stringTiming(rapid), two = f.stringTiming(rapid, 20);
+  check('without splitting, a magazine change makes one long string that looks over the limit',
+        flat.strings.length === 1 && flat.seconds === 64 && f.timingVerdict(flat.seconds, 60).over);
+  check('a gap over the split length starts a new string, each timed on its own, and gap figures leave the break out',
+        two.strings.length === 2 && two.strings[0].seconds === 12 && two.strings[1].seconds === 12 && two.strings[1].n === 5
+        && two.avg === 3 && two.max === 3 && two.min === 3 && two.gaps.length === 8, two);
+  const slow = [0, 3, 6, 9, 12, 52, 66, 80, 94, 114].map(x => ({ ts: x * 1000 }));
+  const spTwo = f.timingSpans(two, 60, 10), spSlow = f.timingSpans(f.stringTiming(slow, 20), 60, 10);
+  check('each string is judged against the limit alone: both fine reads a per-string limit, one over names that string',
+        /String 1 <b>12\.0 s<\/b> \(5 shots\)/.test(spTwo) && /String 2/.test(spTwo) && /Stage limit <b>60 s<\/b> per string/.test(spTwo) && !/over/i.test(spTwo)
+        && /String 2 over the 60 s limit by 2\.0 s/.test(spSlow) && !/String 1 over/.test(spSlow));
+  check('a lone shot in a string is allowed, and no gaps inside any string leaves gap figures out',
+        f.stringTiming([{ ts: 0 }, { ts: 60000 }], 20).avg === null && !/Gap avg/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 60000 }], 20), 70)));
+  check('a stage line lists the string times and goes red when any one is over',
+        f.timingNote([12, 12], 60) === '12.0 s + 12.0 s per string, first to last shot · limit 60 s' && /over the 60 s limit/.test(f.timingNote([12, 63], 60))
+        && f.timesOver([12, 63], 60) && !f.timesOver([12, 60], 60) && !f.timesOver([99], null) && f.timingNote([], 60) === 'Limit 60 s');
 
   // Import screens: the device's own score next to a total for the ticked shots, sighters never counted
   const imp = { face_id: 'NRA_MR1', group_text: '191-5X', shots: SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 })) };

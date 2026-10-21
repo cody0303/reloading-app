@@ -2107,8 +2107,8 @@ const PERF_COLS=[
   {key:'num_shots',label:'Shots',num:true,cell:r=>r.num_shots||'—'},
   {key:'string_seconds',label:'First to last',num:true,cell:r=>{
     if(r.string_seconds==null) return '—';
-    const over=r.stage_time_limit&&+r.string_seconds>+r.stage_time_limit;
-    return `<span${over?' style="color:var(--err)" title="Over the stage time limit, before counting the time to the first shot"':' title="First shot to last shot. ShotMarker does not record the start command."'}>${fmtSec(+r.string_seconds)}</span>`;
+    const times=r.string_times&&r.string_times.length?r.string_times:[+r.string_seconds], over=timesOver(times,r.stage_time_limit);
+    return `<span${over?' style="color:var(--err)" title="Over the stage time limit, before counting the time to the first shot"':' title="First shot to last shot of each string. ShotMarker does not record the start command."'}>${times.map(fmtSec).join(' + ')}</span>`;
   }},
   {key:'score_total',label:'Score',num:true,cell:r=>{
     if(!r.score_text&&!r.rescore_text) return '—';
@@ -3701,9 +3701,10 @@ function mgSet(i,key,val){ matchStages[i][key]=val; updateMatchTotals(); }
 // Timing line under a stage's session: the string time for a rapid-fire stage, against its limit
 function mgTimingNote(s){
   const p=s.performance_id?allPerf.find(x=>x.id===s.performance_id):null;
-  const txt=timingNote(p&&p.string_seconds!=null?p.string_seconds:null,s.time_limit);
+  const times=p&&(p.string_times||(p.string_seconds!=null?[p.string_seconds]:null));
+  const txt=timingNote(times||null,s.time_limit);
   if(!txt) return '';
-  const over=p&&p.string_seconds!=null&&+s.time_limit>0&&+p.string_seconds>+s.time_limit;
+  const over=!!times&&timesOver(times,+s.time_limit);
   return `<span style="color:${over?'var(--err)':'var(--osv)'}">${escHtml(txt)}</span>`;
 }
 function mgNote(i){ const el=document.getElementById('mg-note-'+i); if(el) el.innerHTML=mgTimingNote(matchStages[i]); }
@@ -4343,12 +4344,20 @@ function centerText(c,distYd,unit){
 // ── String timing, from ShotMarker's shot times. These start at the FIRST shot: the time from the start command to
 // that shot is not recorded, so a time within the limit never proves the string was in time. What can be said is how
 // long the first shot could have taken, which is the limit minus the first-to-last time. ──
-function stringTiming(shots){
+// splitGap (seconds): a longer gap between shots starts a new string. Rapid fire is shot as two strings with a magazine
+// change between, each against the stage limit; pass it only for a timed stage, since slow fire has long gaps in one string.
+// The server supplies it (string_gap_s on a timed session's row). Gap figures count only the gaps inside strings.
+function stringTiming(shots,splitGap){
   const t=shots.filter(s=>!s.sighter&&s.ts!=null&&s.ts!=='').map(s=>+s.ts).filter(x=>x===x).sort((a,b)=>a-b);
   if(t.length<2) return null;
-  const gaps=t.slice(1).map((v,i)=>(v-t[i])/1000);
-  const seconds=(t[t.length-1]-t[0])/1000;
-  return {n:t.length,seconds,gaps,avg:seconds/gaps.length,min:Math.min(...gaps),max:Math.max(...gaps)};
+  const gaps=[], strings=[]; let start=0;
+  for(let i=1;i<=t.length;i++){
+    if(i===t.length||(splitGap&&(t[i]-t[i-1])/1000>splitGap)){ strings.push({n:i-start,seconds:(t[i-1]-t[start])/1000}); start=i; }
+    else gaps.push((t[i]-t[i-1])/1000);
+  }
+  const g=gaps.length;
+  return {n:t.length,seconds:(t[t.length-1]-t[0])/1000,gaps,strings,
+          avg:g?gaps.reduce((a,v)=>a+v,0)/g:null,min:g?Math.min(...gaps):null,max:g?Math.max(...gaps):null};
 }
 function fmtSec(sec){
   sec=Math.round(sec*10)/10;
@@ -4362,22 +4371,31 @@ function timingVerdict(seconds,limit){
 const TIMING_TIP='ShotMarker records when each shot landed, not when the start command was given, so this runs from the first shot to the last.';
 function timingSpans(t,limit,expected){
   if(!t) return '';
-  let h=`<span title="${TIMING_TIP}">First to last shot <b>${fmtSec(t.seconds)}</b></span><span>Gap avg <b>${fmtSec(t.avg)}</b></span><span>shortest <b>${fmtSec(t.min)}</b></span><span>longest <b>${fmtSec(t.max)}</b></span>`;
-  if(expected&&t.n<expected) h+=`<span style="color:var(--err);font-weight:500">${t.n} of ${expected} shots recorded</span>`;
-  const v=timingVerdict(t.seconds,limit);
-  if(v) h+=`<span style="color:var(--err);font-weight:500">Over the ${limit} s limit by ${fmtSec(v.by)} before counting the time to the first shot</span>`;
-  else if(limit) h+=`<span>Stage limit <b>${limit} s</b></span>`;
+  const multi=t.strings.length>1, err='style="color:var(--err);font-weight:500"';
+  let h=multi
+    ?t.strings.map((s,i)=>`<span title="${TIMING_TIP}">String ${i+1} <b>${fmtSec(s.seconds)}</b> (${s.n} shot${s.n===1?'':'s'})</span>`).join('')
+    :`<span title="${TIMING_TIP}">First to last shot <b>${fmtSec(t.seconds)}</b></span>`;
+  if(t.avg!=null) h+=`<span>Gap avg <b>${fmtSec(t.avg)}</b></span><span>shortest <b>${fmtSec(t.min)}</b></span><span>longest <b>${fmtSec(t.max)}</b></span>`;
+  if(expected&&t.n<expected) h+=`<span ${err}>${t.n} of ${expected} shots recorded</span>`;
+  let over=false;
+  t.strings.forEach((s,i)=>{
+    const v=timingVerdict(s.seconds,limit);
+    if(v){ over=true; h+=`<span ${err}>${multi?'String '+(i+1)+' over':'Over'} the ${limit} s limit by ${fmtSec(v.by)} before counting the time to the first shot</span>`; }
+  });
+  if(limit&&!over) h+=`<span>Stage limit <b>${limit} s</b>${multi?' per string':''}</span>`;
   return h;
 }
 // One line for a match stage linked to a session: "54.2 s first to last shot · limit 60 s"
+// seconds is one time, or a list with a time per string
 function timingNote(seconds,limit){
   const lim=+limit||0;
-  if(seconds==null||seconds===''){ return lim?`Limit ${lim} s`:''; }
-  const sec=+seconds, v=timingVerdict(sec,lim);
-  let t=`${fmtSec(sec)} first to last shot`;
-  if(lim) t+=v?` · over the ${lim} s limit`:` · limit ${lim} s`;
+  if(seconds==null||seconds===''||(Array.isArray(seconds)&&!seconds.length)){ return lim?`Limit ${lim} s`:''; }
+  const times=(Array.isArray(seconds)?seconds:[seconds]).map(Number), over=timesOver(times,lim);
+  let t=times.map(fmtSec).join(' + ')+(times.length>1?' per string, first to last shot':' first to last shot');
+  if(lim) t+=over?` · over the ${lim} s limit`:` · limit ${lim} s`;
   return t;
 }
+function timesOver(times,lim){ return !!lim&&times.some(x=>timingVerdict(+x,lim)); }
 
 // opts.muzzle: array of muzzle speeds (fps), or null. When opts.layered is set the bar shows shots + group
 // on one line, then a Muzzle row and a Target row; otherwise everything is on a single line.
@@ -5156,7 +5174,7 @@ function smvUpdateStats(){
     if(reAll&&reAll!==all) score.re={all:reAll, checked:scoreOf(picked.map(asRescored),face), face:faceName(face)};
   }
   smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)),
-    {layered:true, muzzle:muzzle.length?muzzle:null, score, timing:{t:stringTiming(picked), limit:p&&p.stage_time_limit, expected:p&&p.stage_shots}});
+    {layered:true, muzzle:muzzle.length?muzzle:null, score, timing:{t:stringTiming(picked,p&&p.stage_time_limit?p.string_gap_s:0), limit:p&&p.stage_time_limit, expected:p&&p.stage_shots}});
 }
 
 // ── Hover tooltip (desktop only) ──────────────────────────────

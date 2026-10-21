@@ -537,6 +537,22 @@ check("the match's stage carries the session's string time", ml["stages"][0]["st
 empty = call(ns["create_performance"], {"lot_number": "T2"})["id"]
 check("a session with no shots has no string time", [x for x in call(ns["list_performance"]) if x["id"] == empty][0]["string_seconds"] is None)
 
+# Rapid fire is two strings with a magazine change between: a gap over STRING_GAP_S starts a new string, each timed on its own
+ps2 = call(ns["create_performance"], {"lot_number": "T3", "distance": 300, "distance_unit": "yd", "date": "2026-10-01"})["id"]
+for i, ts in enumerate([0, 3000, 6000, 9000, 12000, 52000, 55000, 58000, 61000, 64000]):
+    con.execute("INSERT INTO shotmarker_shots (performance_id, idx, label, score, sighter, ts) VALUES (?,?,?,?,?,?)", (ps2, i, str(i), "10", 0, ts))
+con.commit()
+row_ps2 = [x for x in call(ns["list_performance"]) if x["id"] == ps2][0]
+check("a session not on a timed stage has no per-string times", row_ps2["string_times"] is None and row_ps2["string_seconds"] == 64.0, row_ps2)
+st_t[2]["performance_id"] = ps2
+request.method = "PUT"
+call(ns["update_match"], {"name": "Timing match", "date": "2026-10-01", "course_id": tc["id"], "course_name": "Timing test", "stages": st_t}, tm["id"])
+pt = {x["id"]: x for x in call(ns["list_performance"])}
+check("on a timed stage the long gap splits the string, each timed first to last", pt[ps2]["string_times"] == [12.0, 12.0] and pt[ps]["string_times"] == [26.0], (pt[ps2]["string_times"], pt[ps]["string_times"]))
+ml = [m for m in call(ns["list_matches"]) if m["id"] == tm["id"]][0]
+check("a timed session carries the split length for the page to use", pt[ps2]["string_gap_s"] == 20 and pt[ps2]["string_gap_s"] == ns["STRING_GAP_S"] and row_ps2["string_gap_s"] is None)
+check("the match's stage carries the per-string times", ml["stages"][2]["string_times"] == [12.0, 12.0] and ml["stages"][1]["string_times"] is None, ml["stages"][2])
+
 # One-time fill for data that predates limits; it must not undo a limit you clear later
 con.execute("INSERT INTO courses (name, stages) VALUES (?,?)", ("Old course", json.dumps([{"name": "Rapid Fire Prone", "distance": 300, "distance_unit": "yd", "shots": 10},
                                                                                      {"name": "Slow Fire Prone", "distance": 600, "distance_unit": "yd", "shots": 20}])))

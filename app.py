@@ -808,6 +808,33 @@ def delete_round_log(lid):
     return jsonify(out)
 
 # ── Performance ───────────────────────────────────────────────
+# A timed stage can be shot as several strings (rapid fire: two strings with a magazine change between). A gap longer
+# than this starts a new string. The page reads it from each timed session's row (string_gap_s), so it lives only here.
+STRING_GAP_S = 20
+
+def _string_times(conn, pid):
+    """Seconds from first to last shot of each string in a session, or None when it has no timed shots."""
+    ts = sorted(r["ts"] for r in conn.execute(
+        "SELECT ts FROM shotmarker_shots WHERE performance_id=? AND sighter=0 AND ts IS NOT NULL", (pid,)))
+    if len(ts) < 2:
+        return None
+    out, start = [], 0
+    for i in range(1, len(ts) + 1):
+        if i == len(ts) or (ts[i] - ts[i - 1]) / 1000.0 > STRING_GAP_S:
+            out.append(round((ts[i - 1] - ts[start]) / 1000.0, 3))
+            start = i
+    return out
+
+def _perf_dicts(conn, rows):
+    """Performance rows as dicts; a session on a timed stage also gets its per-string times."""
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["string_times"] = _string_times(conn, d["id"]) if d.get("stage_time_limit") else None
+        d["string_gap_s"] = STRING_GAP_S if d.get("stage_time_limit") else None
+        out.append(d)
+    return out
+
 @app.route("/api/performance")
 def list_performance():
     lot = request.args.get("lot_number","")
@@ -832,8 +859,9 @@ def list_performance():
             LEFT JOIN firearms f ON p.firearm_id=f.id
             ORDER BY p.id DESC
         """).fetchall()
+    out = _perf_dicts(conn, rows)
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(out)
 
 @app.route("/api/performance", methods=["POST"])
 def create_performance():
@@ -900,8 +928,9 @@ def update_performance(pid):
               (SELECT shots FROM match_stages WHERE performance_id=p.id) AS stage_shots FROM performance p
         LEFT JOIN firearms f ON p.firearm_id=f.id WHERE p.id=?
     """, (pid,)).fetchone()
+    out = _perf_dicts(conn, [row])[0]
     conn.close()
-    return jsonify(dict(row))
+    return jsonify(out)
 
 def _same_num(a, b):
     try: return float(a or 0) == float(b or 0)
@@ -1077,6 +1106,8 @@ def _match_json(conn, row):
                (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id = s.performance_id AND sighter = 0) AS string_seconds
         FROM match_stages s LEFT JOIN performance p ON p.id = s.performance_id
         WHERE s.match_id=? ORDER BY s.idx, s.id""", (m["id"],)).fetchall()]
+    for st in m["stages"]:
+        st["string_times"] = _string_times(conn, st["performance_id"]) if st["performance_id"] and st["time_limit"] else None
     f = conn.execute("SELECT name FROM firearms WHERE id=?", (m["firearm_id"],)).fetchone() if m["firearm_id"] else None
     m["firearm_name"] = f["name"] if f else None
     return m
