@@ -42,7 +42,9 @@ function runTests(scripts) {
     return js.slice(m.index, i);
   }
   function load(names) {
-    const body = 'let pfSmSelected=null, pfChrono=null;\n' + names.map(grab).join('\n') +
+    const body = 'let pfSmSelected=null, pfChrono=null;\n' +
+      'const SM_FACES={NRA_MR1:{score:[10,"X"]},IFX600y:{score:[6,"X"]},IF600y:{score:[5,"V"]},ISSFC200:{score:[10]},TRD:{score:[1]},' +
+      'TRD_OLD:{score:[5,"V"]}};\n' + names.map(grab).join('\n') +
       '\nreturn {' + names.join(',') + ', set(sm,ch){pfSmSelected=sm;pfChrono=ch;}};';
     return new Function(body)();
   }
@@ -85,6 +87,9 @@ function runTests(scripts) {
   check('X is worth 6 on F-Class X faces', f.scoreOf([{ score: 'X' }, { score: '5' }], 'IFX600y') === '11-1X');
   check('V counts 5 and is labelled V', f.scoreOf([{ score: 'V' }, { score: '4' }], 'IF600y') === '9-1V');
   check('no scores gives null', f.scoreOf([{ score: '' }], 'NRA_MR1') === null);
+  check('a face with no X or V shows just the total (Target Rifle D/F, ISSF C200)',
+        f.scoreOf([{ score: '1' }, { score: '1' }, { score: '0' }], 'TRD') === '2' && f.scoreOf([{ score: '10' }, { score: '9' }], 'ISSFC200') === '19');
+  check('faces with an X or V keep the 191-5X style', f.scoreOf([{ score: 'X' }, { score: '9' }], 'NRA_MR1') === '19-1X' && f.scoreOf([{ score: 'V' }, { score: '4' }], 'TRD_OLD') === '9-1V');
 
   // 3. Twist, time and angle helpers
   const tw = (s) => f.parseTwist(s);

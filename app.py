@@ -264,6 +264,10 @@ def compute_score(shots, face_id=""):
         elif sc.isdigit(): total += int(sc); n += 1
     if not n:
         return None, None
+    # A face with no X or V ring (ISSF C200, Target Rifle D/F) shows just the total, as the device does
+    fd = FACES.get(face_id)
+    if fd and len(fd.get("score") or []) < 2:
+        return total, str(total)
     return total, f"{total}-{count}{kind}"
 
 def _special_value(face_id, marker):
@@ -312,10 +316,42 @@ def ring_score(x_mm, y_mm, bullet_d_mm, face):
     if w and h and (abs(x_mm) > w / 2.0 + half or abs(y_mm) > h / 2.0 + half):
         return "0"                                     # off the board altogether
     dist = (x_mm ** 2 + y_mm ** 2) ** 0.5
+    polys = face.get("polys") or []
+    # The device checks, in this order: shapes marked "top", the rings, the other shapes, then the board
+    for p in polys:
+        if p.get("top") and _hits_poly(x_mm, y_mm, half + (p.get("line") or 0) / 2.0, p["pts"]):
+            return str(p["score"])
     for ring in sorted(face["rings"], key=lambda r: r["r"]):
         if dist < ring["r"] + half:
             return str(ring["score"])
+    for p in polys:
+        if not p.get("top") and _hits_poly(x_mm, y_mm, half + (p.get("line") or 0) / 2.0, p["pts"]):
+            return str(p["score"])
     return str(board.get("score") or 0)                # on the board, outside every ring
+
+def _hits_poly(x, y, radius, pts):
+    """The bullet (a circle of `radius` at x, y) touches a shape: its centre is inside, or closer than `radius` to an
+    edge. Same test as circleIntersectsPolygon in the device software (edges include the one closing the shape)."""
+    inside, n = False, len(pts)
+    j = n - 1
+    for i in range(n):
+        cx, cy = pts[i]
+        fx, fy = pts[j]
+        if (y < cy) != (y < fy) and x < (fx - cx) * (y - cy) / (fy - cy) + cx:
+            inside = not inside
+        j = i
+    if inside:
+        return True
+    for i in range(n):
+        ax, ay = pts[i - 1]                            # i = 0 pairs the last point with the first
+        bx, by = pts[i]
+        dx, dy = bx - ax, by - ay
+        seg = dx * dx + dy * dy
+        t = 0.0 if not seg else ((x - ax) * dx + (y - ay) * dy) / seg
+        t = 0.0 if t < 0 else 1.0 if t > 1 else t
+        if ((x - (ax + t * dx)) ** 2 + (y - (ay + t * dy)) ** 2) ** 0.5 < radius:
+            return True
+    return False
 
 def _clear_rescore(conn, pid):
     conn.execute("UPDATE shotmarker_shots SET rescore=NULL WHERE performance_id=?", (pid,))
@@ -331,7 +367,8 @@ def _apply_rescore(conn, pid):
     face = shots[0]["face_id"]
     orig = conn.execute("SELECT orig_face FROM performance WHERE id=?", (pid,)).fetchone()["orig_face"]
     face_def = FACES.get(face)
-    # Unknown faces, and the few the device scores with polygons (rescore:false), can't be re-scored from rings
+    # Unknown faces, and any flagged rescore:false (scored with polygons, which rings can't describe; no face in
+    # faces.js is), can't be re-scored from rings
     if not face_def or face_def.get("rescore") is False or (orig and orig == face):
         _clear_rescore(conn, pid)
         return

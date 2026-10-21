@@ -329,7 +329,8 @@ check("deleting a rifle clears its round log", con.execute("SELECT COUNT(*) FROM
 import json, math, re as _re
 FACES = ns["FACES"]
 page = open(os.path.join(ROOT, "static", "index.html"), encoding="utf-8").read()
-check("the ring tables load from static/faces.js: 58 faces, each named with rings", len(FACES) == 58 and all(f.get("name") and f.get("rings") for f in FACES.values()), len(FACES))
+check("the face tables load from static/faces.js: 60 faces, each named, with rings or shapes",
+      len(FACES) == 60 and all(f.get("name") and (f.get("rings") or f.get("polys")) for f in FACES.values()), len(FACES))
 check("the page loads faces.js and carries no copy of its own", '<script src="/static/faces.js"></script>' in page and "const SM_FACES={" not in page)
 check("faces.js is the JS the page needs: it defines SM_FACES", open(os.path.join(ROOT, "static", "faces.js"), encoding="utf-8").read().count("const SM_FACES={") == 1)
 check("every face lists its rings from the inside out", all([r["r"] for r in f["rings"]] == sorted(r["r"] for r in f["rings"]) for f in FACES.values()))
@@ -362,8 +363,65 @@ check("what an X or V counts agrees with the device's definition on all 58 faces
 check("an X counts 6 on the ICFRA 'IFX' faces and 10 on the NRA F-Class faces; a V counts 5",
       ns["compute_score"]([{"score": "X"}], "IFX600y")[0] == 6 and ns["compute_score"]([{"score": "X"}], "NRA_MR1FC")[0] == 10
       and ns["compute_score"]([{"score": "V"}], "IF600y")[0] == 5)
-check("the faces the device scores with polygons are marked so they are never re-scored",
-      sorted(fid for fid, f in FACES.items() if f.get("rescore") is False) == ["FCSA_MR1", "IBS1000BR", "IBS600BR"])
+check("no face is excluded from re-scoring: FCSA MR and the two IBS faces only draw their polygon, it scores nothing",
+      not [fid for fid, f in FACES.items() if f.get("rescore") is False])
+
+# Circular faces must score exactly as before the shape support was added: compare with the plain ring-only rule
+import random as _random
+def ring_only(x, y, b, face):
+    half = (b or 7.82) / 2.0
+    bd = face.get("board") or {}
+    if bd.get("w") and bd.get("h") and (abs(x) > bd["w"] / 2.0 + half or abs(y) > bd["h"] / 2.0 + half):
+        return "0"
+    d = (x * x + y * y) ** 0.5
+    for r in sorted(face["rings"], key=lambda r: r["r"]):
+        if d < r["r"] + half:
+            return str(r["score"])
+    return str(bd.get("score") or 0)
+_rng, _diff = _random.Random(11), []
+for fid, f in FACES.items():
+    if f.get("polys"):
+        continue
+    rmax = max(r["r"] for r in f["rings"])
+    for _ in range(300):
+        b = _rng.choice([5.69, 7.82, 9.0, None])
+        if _rng.random() < .5:
+            x, y = _rng.uniform(-1.3 * rmax, 1.3 * rmax), _rng.uniform(-1.3 * rmax, 1.3 * rmax)
+        else:                                                  # right at a ring edge
+            r = _rng.choice(f["rings"])["r"] + _rng.uniform(-4, 4); a = _rng.uniform(0, 6.2832)
+            x, y = r * math.cos(a), r * math.sin(a)
+        if rs(x, y, b, f) != ring_only(x, y, b, f):
+            _diff.append((fid, round(x, 2), round(y, 2), b))
+check("the 58 circular faces score exactly as the plain ring rule (17,400 random shots, many at ring edges)", not _diff, _diff[:3])
+
+# Faces scored with a shape: the Target Rifle D / F face (the device's current "TRD") and the older TRD
+df = FACES["TRD"]
+check("the device's TRD is Target Rifle D / F: no rings, one shape worth 1, no X or V", df["name"] == "Target Rifle D / F" and df["rings"] == []
+      and [p["score"] for p in df["polys"]] == [1] and df["score"] == [1])
+check("a hit inside the D/F outline scores 1, wherever inside", rs(0, 0, 5.69, df) == "1" and rs(300, -100, 5.69, df) == "1" and rs(0, 100, 5.69, df) == "1")
+check("a shot whose bullet only reaches the outline's edge scores 1 (flat bottom edge at y = -155.3)",
+      rs(0, -157, 5.69, df) == "1" and rs(0, -158.1, 5.69, df) == "1" and rs(0, -158.2, 5.69, df) == "0")
+check("outside the outline, on the board, scores nothing; so does off the board",
+      rs(0, -159, 5.69, df) == "0" and rs(340, -100, 5.69, df) == "0" and rs(0, 350, 5.69, df) == "0" and rs(700, 0, 5.69, df) == "0")
+check("the bullet size decides how far from the edge still counts", rs(0, -159, 9.0, df) == "1" and rs(0, -159, 5.69, df) == "0")
+od = FACES["TRD_OLD"]
+check("the older TRD tests the V ring first, then its shapes in order (5, 4, 3)",
+      [rs(0, 25, 5.69, od), rs(0, 70, 5.69, od), rs(0, -90, 5.69, od), rs(0, -200, 5.69, od), rs(0, 500, 5.69, od)] == ["V", "5", "4", "3", "0"],
+      [rs(0, 25, 5.69, od), rs(0, 70, 5.69, od), rs(0, -90, 5.69, od), rs(0, -200, 5.69, od), rs(0, 500, 5.69, od)])
+sq = {"rings": [], "board": {"w": 100, "h": 100, "score": 0}, "polys": [{"score": 3, "line": 0, "top": False, "pts": [[0, 0], [10, 0], [10, 10], [0, 10]]}]}
+check("a shape is closed by an edge from its last point back to its first", rs(0, 5, 0.2, sq) == "3" and rs(-0.05, 5, 0.2, sq) == "3" and rs(-0.2, 5, 0.2, sq) == "0")
+topq = {"rings": [{"r": 5, "score": 9}], "board": {"w": 100, "h": 100, "score": 0},
+        "polys": [{"score": 7, "line": 0, "top": True, "pts": [[-2, -2], [2, -2], [2, 2], [-2, 2]]}, {"score": 1, "line": 0, "top": False, "pts": [[-20, -20], [20, -20], [20, 20], [-20, 20]]}]}
+check("shapes marked top are tested before the rings, the others after", rs(0, 0, 1, topq) == "7" and rs(4, 0, 1, topq) == "9" and rs(15, 0, 1, topq) == "1")
+check("a shape's line width widens what counts as touching it",
+      rs(-3, 5, 0.2, {**sq, "polys": [{**sq["polys"][0], "line": 8}]}) == "3" and rs(-3, 5, 0.2, sq) == "0")
+
+# Score text: a face with no X or V shows only the total, like the device
+cs = ns["compute_score"]
+check("Target Rifle D / F and ISSF C200 show a plain total", cs([{"score": "1"}, {"score": "1"}, {"score": "0"}], "TRD") == (2, "2")
+      and cs([{"score": "10"}, {"score": "9"}], "ISSFC200") == (19, "19"))
+check("faces with an X or V keep the 191-5X style", cs([{"score": "X"}, {"score": "9"}], "NRA_MR1") == (19, "19-1X") and cs([{"score": "V"}], "IF600y") == (5, "5-1V"))
+check("the older TRD counts a V as 5 and keeps the V style", cs([{"score": "V"}, {"score": "4"}], "TRD_OLD") == (9, "9-1V"))
 check("the position can be on either axis", rs(0, -79.04, 5.69, mr1) == "X" and rs(55.88, 55.88, 5.69, mr1) == "X" and rs(55.95, 55.95, 5.69, mr1) == "10")
 
 mism = []
@@ -412,6 +470,12 @@ call(ns["save_perf_shots"], {"shots": realC["shots"], "face_id": "NRA_MR1", "dis
 check("importing again starts clean", row(rp)["rescore_text"] is None and row(rp)["orig_face"] == "NRA_MR1")
 call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NOT_A_FACE"}, rp)
 check("an unknown face is not scored", row(rp)["rescore_text"] is None)
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "IBS600BR"}, rp)
+check("a face with a drawn polygon (IBS 600 BR) is scored from its rings like any other", row(rp)["rescore_text"] is not None and row(rp)["rescore_face"] == "IBS600BR", row(rp))
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "TRD"}, rp)
+inside = sum(1 for r in con.execute("SELECT rescore FROM shotmarker_shots WHERE performance_id=? AND sighter=0", (rp,)) if r["rescore"] == "1")
+check("a session moved onto Target Rifle D / F is re-scored: a plain total, one point per record shot inside the outline",
+      row(rp)["rescore_face"] == "TRD" and row(rp)["rescore_total"] == inside and row(rp)["rescore_text"] == str(inside) and inside > 0, row(rp))
 call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NRA_MR1FC"}, rp)
 call(ns["delete_perf_shots"], None, rp)
 check("deleting the shots clears the re-score too", row(rp)["rescore_text"] is None and row(rp)["orig_face"] is None)

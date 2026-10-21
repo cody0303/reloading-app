@@ -4097,6 +4097,14 @@ const SM_GRAY='#888884', SM_WHITE='#ffffff';
 function smGetRings(face_id){
   return (SM_FACES[face_id]||SM_FACES["NRA_MR1"]).rings;
 }
+// How far out the target reaches, in mm, which sets the drawing scale. For a circular face this is its outermost ring,
+// exactly what the code used before shapes existed; a face with no rings (Target Rifle D/F) uses its outline instead.
+function smFaceExtent(face_id){
+  const f=SM_FACES[face_id]||SM_FACES["NRA_MR1"];
+  let r=f.rings&&f.rings.length?f.rings[f.rings.length-1].r:0;
+  (f.polys||[]).forEach(p=>p.pts.forEach(q=>{ r=Math.max(r,Math.hypot(q[0],q[1])); }));
+  return r||500;
+}
 
 let smPerfId=null, smSession=null, smShots=[], smSelected=new Set(), smLastClick=null;
 let smZoomLevel=1, smPanX=0, smPanY=0;
@@ -4662,11 +4670,13 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,W,H);
 
-  const RINGS=smGetRings(faceId||(shots&&shots[0]&&shots[0].face_id)||'NRA_MR1');
-  const baseScale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40);
+  const faceKey=faceId||(shots&&shots[0]&&shots[0].face_id)||'NRA_MR1';
+  const RINGS=smGetRings(faceKey);
+  const extent=smFaceExtent(faceKey);
+  const baseScale=Math.min(W,H)*0.5/(extent+40);
   const scale=baseScale*zl;
   const cx=W/2+panX, cy=H/2+panY;
-  const vR=(RINGS[RINGS.length-1].r+40)*scale;
+  const vR=(extent+40)*scale;
 
   function tc(x,y){return[cx+x*scale, cy-y*scale];}
 
@@ -4685,6 +4695,16 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi
     ctx.strokeStyle=RINGS[i].dark?SM_WHITE:SM_GRAY;
     ctx.lineWidth=Math.max(0.8,2); ctx.stroke();
   }
+  // Faces scored with shapes (Target Rifle D/F): the scoring outline(s). Listed inner first, so drawn last-to-first
+  const shapes=(SM_FACES[faceKey]||{}).polys||[];
+  for(let i=shapes.length-1;i>=0;i--){
+    const sh=shapes[i];
+    ctx.beginPath();
+    sh.pts.forEach((q,k)=>{ const [x,y]=tc(q[0],q[1]); if(k) ctx.lineTo(x,y); else ctx.moveTo(x,y); });
+    ctx.closePath();
+    ctx.fillStyle=sh.dark?SM_GRAY:'rgba(120,120,110,0.16)'; ctx.fill();
+    ctx.strokeStyle=sh.dark?SM_WHITE:SM_GRAY; ctx.lineWidth=Math.max(0.8,2); ctx.stroke();
+  }
 
   // Grid 1 MOA
   const moaMm=shots&&shots.length?smMoaMm(shots[0].distance||600,shots[0].dist_unit||'y'):smMoaMm(600,'y');
@@ -4693,7 +4713,7 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi
   const bands=RINGS.map((ring,i)=>({
     outer:ring.r*scale, inner:i===0?0:RINGS[i-1].r*scale, dark:!!ring.dark
   }));
-  bands.push({outer:900*scale, inner:RINGS[RINGS.length-1].r*scale, dark:false});
+  bands.push({outer:900*scale, inner:(RINGS.length?RINGS[RINGS.length-1].r:0)*scale, dark:false});
 
   bands.forEach(b=>{
     ctx.save();
@@ -4861,8 +4881,7 @@ function initInteractiveCanvas(cvId, getShots, getBulletD, onHover, opts={}){
     const W=C.parentElement.clientWidth, H=C.parentElement.clientHeight;
     if(!W||!H) return;
     const first=getShots()[0];
-    const R=smGetRings((opts.getFace&&opts.getFace())||(first&&first.face_id)||'NRA_MR1');
-    const base=Math.min(W,H)*0.5/(R[R.length-1].r+40);
+    const base=Math.min(W,H)*0.5/(smFaceExtent((opts.getFace&&opts.getFace())||(first&&first.face_id)||'NRA_MR1')+40);
     const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
     const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
     const bd=getBulletD();
@@ -5008,6 +5027,9 @@ function scoreOf(shots,faceId){
     else if(sc==='V'){ total+=5; count++; n++; kind='V'; }
     else if(/^\d+$/.test(sc)){ total+=parseInt(sc,10); n++; }
   });
+  // A face with no X or V (ISSF C200, Target Rifle D/F) shows just the total, like the device and the server do
+  const def=(typeof SM_FACES!=='undefined'&&SM_FACES[faceId])||null;
+  if(n&&def&&(def.score||[]).length<2) return String(total);
   return n?`${total}-${count}${kind}`:null;
 }
 
@@ -5042,8 +5064,7 @@ function smPick(canvasId,clientX,clientY,radiusPx){
   if(!C||!shots||!shots.length) return [];
   const v=isV?smvView():{zl:smZoomLevel,panX:smPanX,panY:smPanY};
   const W=C.parentElement.clientWidth, H=C.parentElement.clientHeight;
-  const RINGS=smGetRings((sess&&sess.face_id)||shots[0].face_id||'NRA_MR1');
-  const scale=Math.min(W,H)*0.5/(RINGS[RINGS.length-1].r+40)*v.zl;
+  const scale=Math.min(W,H)*0.5/(smFaceExtent((sess&&sess.face_id)||shots[0].face_id||'NRA_MR1')+40)*v.zl;
   const cx=W/2+v.panX, cy=H/2+v.panY;
   const rect=C.getBoundingClientRect();
   const mx=clientX-rect.left, my=clientY-rect.top;
