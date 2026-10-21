@@ -51,8 +51,17 @@ body{font-family:'Roboto',sans-serif;background:var(--bg);color:var(--os);min-he
 .nav-link .mi{font-size:18px}
 .nav-link:hover{background:var(--sfv);color:var(--os)}
 .nav-link.active{background:var(--pc);color:var(--p)}
+/* NAV WIDTH: the three breakpoints below (900, 640, 360) were measured for SIX tabs plus the logo and the
+   export/import buttons. Adding a tab or a button to the top bar (or lengthening a tab label) makes the bar wider,
+   so they must be re-measured: the page widens past the screen and tabs go off the edge when the bar doesn't fit.
+   To re-check, open each tab at widths 320, 360, 640, 641, 744 (iPad mini portrait), 900 and 901, and compare
+   document.querySelector('.nav').scrollWidth with window.innerWidth. They must be equal. The Performance tab has
+   the longest label, so it is the worst case. Last measured: all labels shown needs ~890px; at 744px the open tab's
+   label plus five icons fits with room to spare; 320px phones fit with the tightest spacing. */
+/* Tablets in portrait: six labelled tabs need about 890px, so only the open tab keeps its label */
+@media(max-width:900px){.nav-link:not(.active) span.lbl{display:none}}
 /* Phones: six tabs plus export/import have to fit in the width, so icons only, no title, tighter spacing */
-@media(max-width:600px){
+@media(max-width:640px){
   .nav-link span.lbl{display:none}
   .logo-text{display:none}
   .nav{padding:0 4px;gap:0}
@@ -1154,6 +1163,7 @@ td.c-act{text-align:right;white-space:nowrap;padding:6px 8px}
 <!-- Snackbar -->
 <div class="snack" id="snack"><span class="mi material-icons-round" id="snack-icon">check_circle</span><span id="snack-msg"></span></div>
 
+<script src="/static/faces.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════
 // STATE
@@ -2096,10 +2106,14 @@ const PERF_COLS=[
   {key:'group_y',label:'Grp Y',num:true,cell:r=>r.group_y?r.group_y+' '+r.group_unit:'—'},
   {key:'num_shots',label:'Shots',num:true,cell:r=>r.num_shots||'—'},
   {key:'score_total',label:'Score',num:true,cell:r=>{
-    if(!r.score_text) return '—';
-    return r.use_score===0
-      ?`<span style="opacity:.4" title="Not used: the distance or target face was changed after the shots were imported">${escHtml(r.score_text)}</span>`
-      :escHtml(r.score_text);
+    if(!r.score_text&&!r.rescore_text) return '—';
+    // ShotMarker's own score stays; when the face was changed and the shots re-score differently, that shows under it
+    const re=r.rescore_text&&r.rescore_text!==r.score_text
+      ?`<div style="font-size:11px;color:var(--p)" title="Shots scored again on ${escHtml(faceName(r.rescore_face))}, since the target face was changed after import">${escHtml(r.rescore_text)} re-scored</div>`:'';
+    const dev=!r.score_text?'':(r.use_score===0&&!r.rescore_text
+      ?`<span style="opacity:.4" title="Not used: the distance was changed after the shots were imported">${escHtml(r.score_text)}</span>`
+      :escHtml(r.score_text));
+    return dev+re;
   }},
   {key:'position',label:'Position',cell:r=>r.position?escHtml(POSITION_ABBR[r.position]||r.position):'—'},
   {key:'notes',label:'Notes',cell:r=>r.notes?escHtml(r.notes):'—'},
@@ -2730,8 +2744,9 @@ function pfSetScoreUI(row){
   cb.checked=row?row.use_score!==0:true;
   cb.disabled=!hasScore;
   document.getElementById('pf-score-text').textContent=hasScore?`(${row.score_text})`:'';
+  const re=row&&row.rescore_text&&row.rescore_text!==row.score_text?` Re-scored on ${faceName(row.rescore_face)}: ${row.rescore_text}.`:'';
   document.getElementById('pf-score-note').textContent=hasScore
-    ?'Unticks itself if the distance or target face is changed afterwards, since the device scored the shots on the original.'
+    ?'Unticks itself if the distance is changed afterwards. Changing the target face scores the shots again on the new face and keeps ShotMarker\'s own score.'+re
     :(row?'No ShotMarker score is saved for this session.':'');
   pfOrig=row?{dist:row.distance,unit:row.distance_unit||'yd',face:row.face_id||'',use:row.use_score!==0}:null;
 }
@@ -2740,9 +2755,9 @@ function pfScoreGuard(){
   if(!perfEditId||!pfOrig) return;
   const cb=document.getElementById('pf-use-score');
   if(cb.disabled) return;
+  // The face is not checked: changing it re-scores the shots instead of switching the score off
   const same=parseFloat(document.getElementById('pf-dist').value||0)===parseFloat(pfOrig.dist||0)
-    &&document.getElementById('pf-dist-unit').value===pfOrig.unit
-    &&document.getElementById('pf-face').value===pfOrig.face;
+    &&document.getElementById('pf-dist-unit').value===pfOrig.unit;
   cb.checked=same?pfOrig.use:false;
 }
 
@@ -3281,6 +3296,27 @@ let matchEditId=null, matchEditCourseName=null, matchStages=[];
 let courseEditId=null, courseStages=[];
 
 // ── Pure helpers (also exercised by tests/frontend.test.js) ──
+// ── Scores: ShotMarker's own, and the re-score (the shots scored again after the target face was changed) ──
+// What to copy into a match stage from a session: its re-score if it has one, otherwise ShotMarker's score
+// (unless that was switched off). Returns {score, x} or null.
+function sessionMatchScore(p){
+  if(p.rescore_total!=null) return {score:p.rescore_total,x:parseXCount(p.rescore_text)};
+  if(p.score_total!=null&&p.use_score!==0) return {score:p.score_total,x:parseXCount(p.score_text)};
+  return null;
+}
+// A session's score as one line for pickers: the re-score is marked as such, and only when it differs.
+function sessionScoreText(p){
+  return p.rescore_text&&p.rescore_text!==p.score_text?`${p.rescore_text} (re-scored)`:(p.score_text||'');
+}
+// One shot's score for the viewer: ShotMarker's, then "→ re-score" when scoring it again gave something else.
+// `showDevice` is false when the session's score is switched off and there is no re-score to show instead.
+function shotScoreLabel(device,rescore,showDevice){
+  const dev=showDevice&&device?String(device):'';
+  if(rescore!=null&&rescore!==''&&String(rescore)!==String(device)) return dev?`${dev} → ${rescore}`:String(rescore);
+  return dev;
+}
+function faceName(id){ return (SM_FACES[id]&&SM_FACES[id].name)||id||''; }
+
 // "95-3X" -> 3. Anything not in ShotMarker's total-count style gives null.
 function parseXCount(txt){
   const m=/^\s*\d+\s*-\s*(\d+)\s*[XV]?\s*$/i.exec(txt==null?'':String(txt));
@@ -3384,7 +3420,7 @@ function apiErr(e){
 }
 function sessionLabel(p){
   return `${p.lot_number||'Session '+p.id} · ${p.date||'no date'} · ${p.distance||'?'}${p.distance_unit||'yd'}`
-    +(p.score_text?` · ${p.score_text}`:'')+(p.firearm_name?` · ${p.firearm_name}`:'');
+    +(sessionScoreText(p)?` · ${sessionScoreText(p)}`:'')+(p.firearm_name?` · ${p.firearm_name}`:'');
 }
 function fmtStage(s){ return `${s.distance?s.distance+' '+(s.unit||s.distance_unit||'yd')+' · ':''}${s.name}`; }
 function sparkSvg(v){
@@ -3672,10 +3708,10 @@ function mgSession(i,val){
   renderMatchStages();
 }
 function mgApplySession(st,p){
-  if(p.score_total!=null&&p.use_score!==0){
-    st.score=p.score_total;
-    const x=parseXCount(p.score_text);
-    if(x!=null) st.x_count=x;
+  const sc=sessionMatchScore(p);
+  if(sc){
+    st.score=sc.score;
+    if(sc.x!=null) st.x_count=sc.x;
   }else{
     snack('That session has no score to copy; enter this stage by hand','warn');
   }
@@ -3705,7 +3741,8 @@ function mgAutoLink(){
     if(id&&id!==matchStages[i].performance_id){
       matchStages[i].performance_id=id; n++;
       const p=allPerf.find(x=>x.id===id);
-      if(p&&p.score_total!=null&&p.use_score!==0){ matchStages[i].score=p.score_total; const x=parseXCount(p.score_text); if(x!=null) matchStages[i].x_count=x; }
+      const sc=p&&sessionMatchScore(p);
+      if(sc){ matchStages[i].score=sc.score; if(sc.x!=null) matchStages[i].x_count=sc.x; }
     }
   });
   mgSyncFromSessions();
@@ -4052,66 +4089,7 @@ Promise.all([fetchLoads(),fetchFirearms(),fetchAC(),fetchAppSettings(),fetchCour
 // SHOTMARKER
 // ══════════════════════════════════════════════════════════════
 const SM_INCH = 25.4;
-const SM_FACES={
-  "NRA_MR52FC":{name:"MR-52FC (200)",rings:[{"r":11.303,"score":"X","dark":true},{"r":22.733,"score":10,"dark":true},{"r":48.133,"score":9,"dark":true},{"r":73.533,"score":8,"dark":true},{"r":98.933,"score":7,"dark":true},{"r":149.733,"score":6,"dark":true},{"r":200.533,"score":5,"dark":false}]},
-  "ISSFC50":{name:"ISSF C50",rings:[{"r":12.5,"score":"X","dark":true},{"r":25.0,"score":10,"dark":true},{"r":50.0,"score":9,"dark":true},{"r":75.0,"score":8,"dark":true},{"r":100.0,"score":7,"dark":true},{"r":125.0,"score":6,"dark":false},{"r":150.0,"score":5,"dark":false},{"r":175.0,"score":4,"dark":false},{"r":200.0,"score":3,"dark":false},{"r":225.0,"score":2,"dark":false},{"r":250.0,"score":1,"dark":false}]},
-  "ISSFC200":{name:"ISSF C200",rings:[{"r":40.0,"score":10,"dark":true},{"r":80.0,"score":9,"dark":true},{"r":120.0,"score":8,"dark":true},{"r":160.0,"score":7,"dark":true},{"r":200.0,"score":6,"dark":true},{"r":240.0,"score":5,"dark":false},{"r":280.0,"score":4,"dark":false},{"r":320.0,"score":3,"dark":false},{"r":360.0,"score":2,"dark":false},{"r":400.0,"score":1,"dark":false}]},
-  "ISSF300":{name:"ISSF 300m",rings:[{"r":25.0,"score":"X","dark":true},{"r":50.0,"score":10,"dark":true},{"r":100.0,"score":9,"dark":true},{"r":150.0,"score":8,"dark":true},{"r":200.0,"score":7,"dark":true},{"r":250.0,"score":6,"dark":true},{"r":300.0,"score":5,"dark":true},{"r":350.0,"score":4,"dark":false},{"r":400.0,"score":3,"dark":false},{"r":450.0,"score":2,"dark":false},{"r":500.0,"score":1,"dark":false}]},
-  "ISSF300x15":{name:"ISSF 300m +50%",rings:[{"r":37.5,"score":"X","dark":true},{"r":75.0,"score":10,"dark":true},{"r":150.0,"score":9,"dark":true},{"r":225.0,"score":8,"dark":true},{"r":300.0,"score":7,"dark":true},{"r":375.0,"score":6,"dark":true},{"r":450.0,"score":5,"dark":true},{"r":525.0,"score":4,"dark":false},{"r":600.0,"score":3,"dark":false},{"r":675.0,"score":2,"dark":false},{"r":750.0,"score":1,"dark":false}]},
-  "NRA_LR_800":{name:"NRA LR x0.8",rings:[{"r":101.6,"score":"X","dark":true},{"r":203.2,"score":10,"dark":true},{"r":304.8,"score":9,"dark":true},{"r":447.04,"score":8,"dark":true},{"r":609.6,"score":7,"dark":false}]},
-  "NRA_LRFC_800":{name:"NRA LRFC x0.8",rings:[{"r":50.8,"score":"X","dark":true},{"r":101.6,"score":10,"dark":true},{"r":203.2,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":447.04,"score":7,"dark":true},{"r":609.6,"score":6,"dark":false}]},
-  "FCSA_MR1":{name:"FCSA MR",rings:[{"r":76.2,"score":"X","dark":true},{"r":152.4,"score":10,"dark":true},{"r":228.6,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":457.2,"score":7,"dark":false},{"r":609.6,"score":6,"dark":false},{"r":762.0,"score":5,"dark":false}]},
-  "NRA_MR1_400":{name:"MR-1 x2/3",rings:[{"r":50.8,"score":"X","dark":true},{"r":101.6,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":203.2,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":406.4,"score":6,"dark":false},{"r":508.0,"score":5,"dark":false}]},
-  "NRA_C1":{name:"C-1 (300m)",rings:[{"r":25.0,"score":"X","dark":true},{"r":50.0,"score":10,"dark":true},{"r":100.0,"score":9,"dark":true},{"r":150.0,"score":8,"dark":true},{"r":200.0,"score":7,"dark":true},{"r":250.0,"score":6,"dark":true},{"r":300.0,"score":5,"dark":true},{"r":350.0,"score":4,"dark":false},{"r":400.0,"score":3,"dark":false},{"r":450.0,"score":2,"dark":false},{"r":500.0,"score":1,"dark":false}]},
-  "NRA_C2":{name:"C-2 (200y)",rings:[{"r":15.24,"score":"X","dark":true},{"r":30.48,"score":10,"dark":true},{"r":60.96,"score":9,"dark":true},{"r":91.44,"score":8,"dark":true},{"r":121.92,"score":7,"dark":true},{"r":152.4,"score":6,"dark":true},{"r":182.88,"score":5,"dark":true},{"r":213.36,"score":4,"dark":false},{"r":243.84,"score":3,"dark":false},{"r":274.32,"score":2,"dark":false},{"r":304.8,"score":1,"dark":false}]},
-  "NRA_C3":{name:"C-3 (300y)",rings:[{"r":22.86,"score":"X","dark":true},{"r":45.72,"score":10,"dark":true},{"r":91.44,"score":9,"dark":true},{"r":137.16,"score":8,"dark":true},{"r":182.88,"score":7,"dark":true},{"r":228.6,"score":6,"dark":true},{"r":274.32,"score":5,"dark":true},{"r":320.04,"score":4,"dark":false},{"r":365.76,"score":3,"dark":false},{"r":411.48,"score":2,"dark":false},{"r":457.2,"score":1,"dark":false}]},
-  "NRA_SR1":{name:"SR-1 (100)",rings:[{"r":17.145,"score":"X","dark":true},{"r":42.545,"score":10,"dark":true},{"r":80.645,"score":9,"dark":true},{"r":118.745,"score":8,"dark":false},{"r":156.845,"score":7,"dark":false},{"r":194.945,"score":6,"dark":false},{"r":233.045,"score":5,"dark":false}]},
-  "NRA_SR21":{name:"SR-21 (100)",rings:[{"r":10.033,"score":"X","dark":true},{"r":26.924,"score":10,"dark":true},{"r":52.324,"score":9,"dark":true},{"r":77.724,"score":8,"dark":true},{"r":103.124,"score":7,"dark":false},{"r":128.524,"score":6,"dark":false},{"r":153.924,"score":5,"dark":false}]},
-  "NRA_MR31":{name:"MR-31 (100)",rings:[{"r":9.525,"score":"X","dark":true},{"r":22.225,"score":10,"dark":true},{"r":34.925,"score":9,"dark":true},{"r":47.625,"score":8,"dark":true},{"r":73.025,"score":7,"dark":true},{"r":98.425,"score":6,"dark":false},{"r":123.825,"score":5,"dark":false}]},
-  "NRA_SR":{name:"SR (200)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
-  "NRA_SR42":{name:"SR-42 (200)",rings:[{"r":24.13,"score":"X","dark":true},{"r":57.912,"score":10,"dark":true},{"r":108.712,"score":9,"dark":true},{"r":159.512,"score":8,"dark":true},{"r":210.312,"score":7,"dark":false},{"r":261.112,"score":6,"dark":false},{"r":311.912,"score":5,"dark":false}]},
-  "NRA_MR52":{name:"MR-52 (200)",rings:[{"r":22.733,"score":"X","dark":true},{"r":48.133,"score":10,"dark":true},{"r":73.533,"score":9,"dark":true},{"r":98.933,"score":8,"dark":true},{"r":149.733,"score":7,"dark":true},{"r":200.533,"score":6,"dark":false},{"r":251.333,"score":5,"dark":false}]},
-  "NRA_SR5":{name:"SR-5 (200)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false}]},
-  "NRA_SR3":{name:"SR-3 (300)",rings:[{"r":38.1,"score":"X","dark":true},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":true},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
-  "NRA_MR63":{name:"MR-63 (300)",rings:[{"r":36.195,"score":"X","dark":true},{"r":74.295,"score":10,"dark":true},{"r":112.395,"score":9,"dark":true},{"r":150.495,"score":8,"dark":true},{"r":226.695,"score":7,"dark":true},{"r":302.895,"score":6,"dark":false},{"r":379.095,"score":5,"dark":false}]},
-  "NRA_MR63FC":{name:"MR-63FC (300)",rings:[{"r":18.034,"score":"X","dark":true},{"r":36.195,"score":10,"dark":true},{"r":74.295,"score":9,"dark":true},{"r":112.395,"score":8,"dark":true},{"r":150.495,"score":7,"dark":true},{"r":226.695,"score":6,"dark":true},{"r":302.895,"score":5,"dark":false}]},
-  "NRA_MR":{name:"MR (500)",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.0,"score":10,"dark":true},{"r":190.5,"score":9,"dark":true},{"r":254.0,"score":8,"dark":true},{"r":317.5,"score":7,"dark":true},{"r":381.0,"score":6,"dark":true},{"r":457.2,"score":5,"dark":false}]},
-  "NRA_MR65FC":{name:"MR-65FC (500)",rings:[{"r":31.75,"score":"X","dark":true},{"r":63.5,"score":10,"dark":true},{"r":127.0,"score":9,"dark":true},{"r":190.5,"score":8,"dark":true},{"r":254.0,"score":7,"dark":true},{"r":317.5,"score":6,"dark":true},{"r":381.0,"score":5,"dark":true}]},
-  "NRA_MR1":{name:"MR-1 (600)",rings:[{"r":76.2,"score":"X","dark":true},{"r":152.4,"score":10,"dark":true},{"r":228.6,"score":9,"dark":true},{"r":304.8,"score":8,"dark":true},{"r":457.2,"score":7,"dark":true},{"r":609.6,"score":6,"dark":false},{"r":762.0,"score":5,"dark":false}]},
-  "NRA_MR1FC":{name:"MR-1FC (600)",rings:[{"r":38.1,"score":"X","dark":true},{"r":76.2,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":228.6,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":457.2,"score":6,"dark":true},{"r":609.6,"score":5,"dark":false}]},
-  "NRA_MR1FCA":{name:"MR-1FCA (600)",rings:[{"r":38.1,"score":"X","dark":true},{"r":76.2,"score":10,"dark":true},{"r":152.4,"score":9,"dark":true},{"r":228.6,"score":8,"dark":true},{"r":304.8,"score":7,"dark":true},{"r":381.0,"score":6,"dark":true},{"r":457.2,"score":5,"dark":true}]},
-  "NRA_LR":{name:"LR (800-1000)",rings:[{"r":127.0,"score":"X","dark":true},{"r":254.0,"score":10,"dark":true},{"r":381.0,"score":9,"dark":true},{"r":558.8,"score":8,"dark":true},{"r":762.0,"score":7,"dark":false}]},
-  "NRA_LRFC":{name:"LRFC (800-1000)",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.0,"score":10,"dark":true},{"r":254.0,"score":9,"dark":true},{"r":381.0,"score":8,"dark":true},{"r":558.8,"score":7,"dark":true},{"r":762.0,"score":6,"dark":false}]},
-  "IF300y":{name:"FC 300y",rings:[{"r":16.0,"score":"V","dark":true},{"r":32.5,"score":5,"dark":true},{"r":65.0,"score":4,"dark":true},{"r":130.0,"score":3,"dark":true},{"r":195.0,"score":2,"dark":true},{"r":280.0,"score":1,"dark":true}]},
-  "IF300m":{name:"FC 300m",rings:[{"r":17.5,"score":"V","dark":true},{"r":35.0,"score":5,"dark":true},{"r":70.0,"score":4,"dark":true},{"r":140.0,"score":3,"dark":true},{"r":210.0,"score":2,"dark":true},{"r":300.0,"score":1,"dark":true}]},
-  "IF400y":{name:"FC 400y",rings:[{"r":21.5,"score":"V","dark":true},{"r":42.5,"score":5,"dark":true},{"r":87.5,"score":4,"dark":true},{"r":175.0,"score":3,"dark":true},{"r":260.0,"score":2,"dark":true},{"r":372.5,"score":1,"dark":true}]},
-  "IF400m":{name:"FC 400m",rings:[{"r":23.5,"score":"V","dark":true},{"r":47.5,"score":5,"dark":true},{"r":92.5,"score":4,"dark":true},{"r":187.5,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true},{"r":400.0,"score":1,"dark":true}]},
-  "IF500y":{name:"FC 500y",rings:[{"r":32.5,"score":"V","dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":300.0,"score":3,"dark":true},{"r":457.5,"score":2,"dark":true}]},
-  "IF500m":{name:"FC 500m",rings:[{"r":36.0,"score":"V","dark":true},{"r":72.5,"score":5,"dark":true},{"r":145.0,"score":4,"dark":true},{"r":330.0,"score":3,"dark":true},{"r":500.0,"score":2,"dark":true}]},
-  "IF600y":{name:"FC 600y",rings:[{"r":36.0,"score":"V","dark":true},{"r":72.5,"score":5,"dark":true},{"r":145.0,"score":4,"dark":true},{"r":300.0,"score":3,"dark":true},{"r":457.5,"score":2,"dark":true}]},
-  "IF600m":{name:"FC 600m/700y",rings:[{"r":40.0,"score":"V","dark":true},{"r":80.0,"score":5,"dark":true},{"r":160.0,"score":4,"dark":true},{"r":330.0,"score":3,"dark":true},{"r":500.0,"score":2,"dark":true}]},
-  "IFLR":{name:"FC Long Range",rings:[{"r":64.0,"score":"V","dark":true},{"r":127.0,"score":5,"dark":true},{"r":254.0,"score":4,"dark":true},{"r":407.5,"score":3,"dark":true},{"r":559.0,"score":2,"dark":true}]},
-  "IFX300y":{name:"FC 300y",rings:[{"r":16.0,"score":"X","dark":true},{"r":32.5,"score":6,"dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":195.0,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true}]},
-  "IFX300m":{name:"FC 300m",rings:[{"r":17.5,"score":"X","dark":true},{"r":35.0,"score":6,"dark":true},{"r":70.0,"score":5,"dark":true},{"r":140.0,"score":4,"dark":true},{"r":210.0,"score":3,"dark":true},{"r":300.0,"score":2,"dark":true}]},
-  "IFX400y":{name:"FC 400y",rings:[{"r":21.5,"score":"X","dark":true},{"r":43.0,"score":6,"dark":true},{"r":86.5,"score":5,"dark":true},{"r":173.0,"score":4,"dark":true},{"r":260.0,"score":3,"dark":true},{"r":373.0,"score":2,"dark":true}]},
-  "IFX400m":{name:"FC 400m",rings:[{"r":23.0,"score":"X","dark":true},{"r":46.5,"score":6,"dark":true},{"r":93.0,"score":5,"dark":true},{"r":186.5,"score":4,"dark":true},{"r":280.0,"score":3,"dark":true},{"r":400.0,"score":2,"dark":true}]},
-  "IFX500y":{name:"FC 500y",rings:[{"r":32.5,"score":"X","dark":true},{"r":65.0,"score":6,"dark":true},{"r":130.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IFX500m":{name:"FC 500m",rings:[{"r":36.0,"score":"X","dark":true},{"r":72.5,"score":6,"dark":true},{"r":145.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IFX600y":{name:"FC 600y",rings:[{"r":36.0,"score":"X","dark":true},{"r":72.5,"score":6,"dark":true},{"r":145.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IFX600m":{name:"FC 600m/700y",rings:[{"r":40.0,"score":"X","dark":true},{"r":80.0,"score":6,"dark":true},{"r":160.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IFXLR":{name:"FC Long Range",rings:[{"r":63.5,"score":"X","dark":true},{"r":127.5,"score":6,"dark":true},{"r":255.0,"score":5,"dark":true},{"r":407.5,"score":4,"dark":true},{"r":560.0,"score":3,"dark":true},{"r":915.0,"score":2,"dark":false}]},
-  "IS300y":{name:"TR 300y",rings:[{"r":32.5,"score":"V","dark":true},{"r":65.0,"score":5,"dark":true},{"r":130.0,"score":4,"dark":true},{"r":195.0,"score":3,"dark":true},{"r":280.0,"score":2,"dark":true}]},
-  "IS300m":{name:"TR 300m",rings:[{"r":35.0,"score":"V","dark":true},{"r":70.0,"score":5,"dark":true},{"r":140.0,"score":4,"dark":true},{"r":210.0,"score":3,"dark":true},{"r":300.0,"score":2,"dark":true}]},
-  "IS400y":{name:"TR 400y",rings:[{"r":42.5,"score":"V","dark":true},{"r":87.5,"score":5,"dark":true},{"r":175.0,"score":4,"dark":true},{"r":260.0,"score":3,"dark":true},{"r":372.5,"score":2,"dark":true}]},
-  "IS400m":{name:"TR 400m",rings:[{"r":47.5,"score":"V","dark":true},{"r":92.5,"score":5,"dark":true},{"r":187.5,"score":4,"dark":true},{"r":280.0,"score":3,"dark":true},{"r":400.0,"score":2,"dark":true}]},
-  "IS500y":{name:"TR 500y",rings:[{"r":65.0,"score":"V","dark":true},{"r":130.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IS500m":{name:"TR 500m",rings:[{"r":72.5,"score":"V","dark":true},{"r":145.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IS600y":{name:"TR 600y",rings:[{"r":72.5,"score":"V","dark":true},{"r":145.0,"score":5,"dark":true},{"r":300.0,"score":4,"dark":true},{"r":457.5,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "IS600m":{name:"TR 600m/700y",rings:[{"r":80.0,"score":"V","dark":true},{"r":160.0,"score":5,"dark":true},{"r":330.0,"score":4,"dark":true},{"r":500.0,"score":3,"dark":true},{"r":660.0,"score":2,"dark":false}]},
-  "ISLR":{name:"TR Long Range",rings:[{"r":127.5,"score":"V","dark":true},{"r":255.0,"score":5,"dark":true},{"r":407.5,"score":4,"dark":true},{"r":560.0,"score":3,"dark":true},{"r":915.0,"score":2,"dark":false}]},
-  "IBS600BR":{name:"IBS 600 BR",rings:[{"r":15.24,"score":"X","dark":false},{"r":35.56,"score":10,"dark":false},{"r":66.04,"score":9,"dark":true},{"r":96.52,"score":8,"dark":false},{"r":127.0,"score":7,"dark":false},{"r":157.48,"score":6,"dark":false},{"r":187.96,"score":5,"dark":false}]},
-  "IBS1000BR":{name:"IBS 1000 BR",rings:[{"r":38.1,"score":"X","dark":false},{"r":88.9,"score":10,"dark":true},{"r":165.1,"score":9,"dark":true},{"r":241.3,"score":8,"dark":false},{"r":317.5,"score":7,"dark":false},{"r":393.7,"score":6,"dark":false},{"r":469.9,"score":5,"dark":false}]},
-};
+// SM_FACES (the target-face ring tables) is defined in faces.js, which the server also reads for re-scoring.
 
 const SM_SUPPORTED=new Set(Object.keys(SM_FACES));
 const SM_GRAY='#888884', SM_WHITE='#ffffff';
@@ -4328,7 +4306,7 @@ function smUpdateStats(barId, shots, opts={}){
   if(!shots.length){
     bar.innerHTML=!opts.score?''
       :opts.layered
-        ?`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%"><span><b>0</b> shots</span><span>Score: <b>${escHtml(opts.score.all)}</b></span><span>Checked: <b>—</b></span></div>`
+        ?`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%"><span><b>0</b> shots</span><span>${opts.score.re?'SM score':'Score'}: <b>${escHtml(opts.score.all)}</b></span><span>Checked: <b>—</b></span>${opts.score.re?`<span>Re-scored on ${escHtml(opts.score.re.face)}: <b>${escHtml(opts.score.re.all)}</b></span><span>Re-scored checked: <b>—</b></span>`:''}</div>`
         :`<span><b>0</b> shots</span>`+importScoreSpans({all:opts.score.all,checked:null});
     return;
   }
@@ -4371,8 +4349,13 @@ function smUpdateStats(barId, shots, opts={}){
   if(!opts.layered){ bar.innerHTML=html+(opts.score?importScoreSpans(opts.score):''); return; }
 
   if(opts.score){
-    html+=`<span>Score: <b>${opts.score.all}</b></span>`;
-    if(opts.score.checked!==opts.score.all) html+=`<span>Checked: <b>${opts.score.checked||'—'}</b></span>`;
+    const sc=opts.score, re=sc.re;
+    html+=`<span>${re?'SM score':'Score'}: <b>${sc.all}</b></span>`;
+    if(sc.checked!==sc.all) html+=`<span>${re?'SM checked':'Checked'}: <b>${sc.checked||'—'}</b></span>`;
+    if(re){
+      html+=`<span>Re-scored on ${escHtml(re.face)}: <b>${re.all}</b></span>`;
+      if(re.checked!==re.all) html+=`<span>Re-scored checked: <b>${re.checked||'—'}</b></span>`;
+    }
   }
   const line=inner=>`<div style="display:flex;gap:12px;flex-wrap:wrap;width:100%">${inner}</div>`;
   const label=t=>`<span style="min-width:52px;color:var(--p);font-weight:500">${t}</span>`;
@@ -5034,8 +5017,18 @@ function smvUpdateStats(){
   const muzzle=smvChrono.filter(c=>c.sm_idx==null||!pos.has(c.sm_idx)||smvSelected.has(pos.get(c.sm_idx))).map(c=>c.speed_fps);
   const p=allPerf.find(x=>x.id===smvPerfId);
   const face=smvSession&&smvSession.face_id;
-  const all=(p&&p.use_score===0)?null:scoreOf(smvShots,face);   // hidden when the score isn't trusted
-  const score=all?{all, checked:scoreOf(smvShots.filter((_,i)=>smvSelected.has(i)),face)}:null;
+  const hasRe=!!(p&&p.rescore_text);
+  // ShotMarker's score is hidden when it isn't trusted, unless there is a re-score to show beside it. It was scored on
+  // the face the shots were imported on, which matters for what an X is worth (F-Class faces count it as 6).
+  const devFace=(p&&p.orig_face&&p.orig_face!=='?')?p.orig_face:face;
+  const all=((p&&p.use_score===0)&&!hasRe)?null:scoreOf(smvShots,devFace);
+  const picked=smvShots.filter((_,i)=>smvSelected.has(i));
+  let score=all?{all, checked:scoreOf(picked,devFace)}:null;
+  if(score&&hasRe){
+    const asRescored=x=>({...x,score:x.rescore});
+    const reAll=scoreOf(smvShots.map(asRescored),face);
+    if(reAll&&reAll!==all) score.re={all:reAll, checked:scoreOf(picked.map(asRescored),face), face:faceName(face)};
+  }
   smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)), {layered:true, muzzle:muzzle.length?muzzle:null, score});
 }
 
@@ -5067,7 +5060,8 @@ function smPick(canvasId,clientX,clientY,radiusPx){
 // Per-shot scores are hidden when the session's score is switched off (distance/face changed after import)
 function smvScoreText(s){
   const p=allPerf.find(x=>x.id===smvPerfId);
-  return (p&&p.use_score===0)||!s.score?'':String(s.score);
+  const hasRe=!!(p&&p.rescore_text);
+  return shotScoreLabel(s.score, hasRe?s.rescore:null, !(p&&p.use_score===0)||hasRe);
 }
 function smvLen(mm){ return smvSession&&smvSession.dist_unit==='m'?mm.toFixed(1)+' mm':(mm/25.4).toFixed(2)+' in'; }
 function smvAng(mm){

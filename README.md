@@ -9,6 +9,7 @@ back, a single-page vanilla JS front end, no build step.
 - **Firearms** – barrel length, twist (entered as `1:x`), caliber, notes, and a round count for barrel life. Each entry is treated as a barrel (fitting a new barrel means adding a new entry). Its rounds are the ones it had before the app, plus its performance sessions (sighters included), plus match stages scored by hand, plus a log for anything fired elsewhere. Set an expected barrel life and the Rounds column turns amber at 80% and red at 100%.
 - **Performance** – range sessions per lot: velocity, group, score, position, notes.
   - Import a **ShotMarker** export (`.tar`) to get shot positions, scores, and a shot viewer with zoom, hover details, and stats for checked shots.
+  - Change a session's target face afterwards and its shots are scored again from their saved positions on the new face, with the same rule the ShotMarker software uses (a shot takes the first ring, working outwards, that its bullet reaches; a hit on the board outside every ring scores the board's value; off the board scores nothing). It reproduces ShotMarker's own scores exactly on the test data. Three faces the device scores with polygons (FCSA MR-1 and the two IBS benchrest faces) are not re-scored. ShotMarker's score is never overwritten: the viewer, the Performance table and the session pickers show both, and a match stage takes the re-score.
   - Import a **Garmin Xero** CSV for muzzle velocity. Shots are paired with ShotMarker shots by timing (falling back to velocity pattern), and you are asked when the shot counts or timing disagree.
   - Sessions with Garmin data but no ShotMarker string open a speed scatter plot (average and ±1 SD) in place of the target.
 - **Matches** – score tracking by course of fire.
@@ -31,7 +32,8 @@ reloading-app/
 ├── docker-compose.portainer.yml   # App only, pulls a pinned image from GHCR (used by Portainer)
 ├── nginx.conf
 ├── static/
-│   └── index.html                 # The whole front end
+│   ├── index.html                 # The whole front end
+│   └── faces.js                   # Target-face ring tables, the one copy: the page loads it, and app.py reads it to re-score shots
 ├── tests/
 │   ├── test_backend.py            # API and decoder checks, no packages needed (Flask is stubbed)
 │   ├── frontend.test.js           # Pure-function checks lifted out of index.html, Node only

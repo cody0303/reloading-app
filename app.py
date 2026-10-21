@@ -212,6 +212,11 @@ def init_db():
         ("performance", "score_text",             "TEXT"),
         ("performance", "score_total",            "INTEGER"),
         ("performance", "use_score",              "INTEGER DEFAULT 1"),
+        ("performance", "orig_face",              "TEXT"),
+        ("performance", "rescore_text",           "TEXT"),
+        ("performance", "rescore_total",          "INTEGER"),
+        ("performance", "rescore_face",           "TEXT"),
+        ("shotmarker_shots", "rescore",           "TEXT"),
     ]
     for table, col, coldef in migrations:
         try:
@@ -226,34 +231,117 @@ def init_db():
     ).fetchall():
         _store_score(conn, r["performance_id"])
 
+    # Remember the face each session was scored on. One whose score was already switched off had its face changed
+    # (or its distance) after import, so its original face is unknown ("?") and it is re-scored on the current one.
+    for r in conn.execute(
+        "SELECT DISTINCT p.id, p.use_score FROM performance p JOIN shotmarker_shots s ON s.performance_id = p.id "
+        "WHERE p.orig_face IS NULL"
+    ).fetchall():
+        face = conn.execute("SELECT face_id FROM shotmarker_shots WHERE performance_id=? LIMIT 1", (r["id"],)).fetchone()["face_id"]
+        if r["use_score"] == 0:
+            conn.execute("UPDATE performance SET orig_face='?' WHERE id=?", (r["id"],))
+            _apply_rescore(conn, r["id"])
+        else:
+            conn.execute("UPDATE performance SET orig_face=? WHERE id=?", (face, r["id"]))
+
     conn.commit()
     conn.close()
 
 # ── Score ─────────────────────────────────────────────────────
 def compute_score(shots, face_id=""):
     """Total and special-ring count of the record shots, in ShotMarker's own '191-5X' style.
-    The X/V ring is worth the same as the ring just outside it on every face definition in the app:
-    10 on NRA/ISSF faces, 6 on the F-Class 'IFX' faces, and 5 for a V bull. Checked against the
-    device's own totals on NRA faces only; the F-Class values are inferred, not confirmed.
+    What an X or V counts is the face's own definition in the device software (the `score` of each face in
+    static/faces.js: 10 on NRA/ISSF faces, 6 for the X on the ICFRA 'IFX' faces, 5 for the V on the 'IF'/'IS' faces),
+    checked against all 58 faces. Faces not in that table fall back to the same values by face name.
     Returns (total, text) or (None, None)."""
-    x_value = 6 if str(face_id or "").startswith("IFX") else 10
     total = count = n = 0
     kind = "X"
     for s in shots:
         if s.get("sighter"): continue
         sc = str(s.get("score") or "").strip().upper()
-        if sc == "X":    total += x_value; count += 1; n += 1; kind = "X"
-        elif sc == "V":  total += 5;       count += 1; n += 1; kind = "V"
+        if sc in ("X", "V"):
+            total += _special_value(face_id, sc); count += 1; n += 1; kind = sc
         elif sc.isdigit(): total += int(sc); n += 1
     if not n:
         return None, None
     return total, f"{total}-{count}{kind}"
+
+def _special_value(face_id, marker):
+    """Points for an X (or V) hit: the face's own value from faces.js, or the usual one if the face isn't listed."""
+    sc = (FACES.get(face_id) or {}).get("score") or []
+    if len(sc) > 1 and str(sc[1]).upper() == marker and isinstance(sc[0], (int, float)):
+        return int(sc[0])
+    if marker == "V":
+        return 5
+    return 6 if str(face_id or "").startswith("IFX") else 10
 
 def _store_score(conn, pid):
     rows = [dict(r) for r in conn.execute(
         "SELECT score, sighter, face_id FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (pid,)).fetchall()]
     total, text = compute_score(rows, rows[0]["face_id"] if rows else "")
     conn.execute("UPDATE performance SET score_total=?, score_text=? WHERE id=?", (total, text, pid))
+
+# ── Re-scoring on another target face ────────────────────────
+# ShotMarker scores each shot on the face it was shot at. If you change the face afterwards, the shots are scored
+# again here from their saved positions and kept apart (shotmarker_shots.rescore, performance.rescore_*) so the
+# device's own scores are never overwritten. The rule is a copy of calc_shot_score in the ShotMarker software
+# (version 122d): a shot takes the first ring, working outwards, for which centre distance < ring radius + bullet
+# radius; outside every ring it scores the board's value (0 on most faces, 1 on the F-Class and TR faces); off the
+# board it scores 0. On the real strings in tests/fixtures it reproduces the device's scores exactly.
+try:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+except NameError:                      # exec'd without a file (the tests set __file__, this is only a fallback)
+    _HERE = os.getcwd()
+try:
+    # static/faces.js is the one copy of the ring tables: the page loads it as a script, and it is strict JSON
+    # after the "const SM_FACES=" prefix, so the same file serves both
+    with open(os.path.join(_HERE, "static", "faces.js"), encoding="utf-8") as _f:
+        _txt = _f.read()
+    FACES = json.loads(_txt[_txt.index("{", _txt.index("SM_FACES")):_txt.rindex("}") + 1])
+except (OSError, ValueError):
+    FACES = {}
+
+def ring_score(x_mm, y_mm, bullet_d_mm, face):
+    """'X', 'V', or the ring value as text; '0' for a miss. None when the position isn't known.
+    `face` is an entry of FACES (rings, board). Positions are measured from the centre of the target."""
+    if x_mm is None or y_mm is None:
+        return None
+    half = (bullet_d_mm or 7.82) / 2.0                 # the device assumes 7.82 mm when a shot has no bullet size
+    board = face.get("board") or {}
+    w, h = board.get("w"), board.get("h")
+    if w and h and (abs(x_mm) > w / 2.0 + half or abs(y_mm) > h / 2.0 + half):
+        return "0"                                     # off the board altogether
+    dist = (x_mm ** 2 + y_mm ** 2) ** 0.5
+    for ring in sorted(face["rings"], key=lambda r: r["r"]):
+        if dist < ring["r"] + half:
+            return str(ring["score"])
+    return str(board.get("score") or 0)                # on the board, outside every ring
+
+def _clear_rescore(conn, pid):
+    conn.execute("UPDATE shotmarker_shots SET rescore=NULL WHERE performance_id=?", (pid,))
+    conn.execute("UPDATE performance SET rescore_text=NULL, rescore_total=NULL, rescore_face=NULL WHERE id=?", (pid,))
+
+def _apply_rescore(conn, pid):
+    """Re-score a session's saved shots on the face they are on now, unless that is the face they were imported on."""
+    shots = conn.execute(
+        "SELECT id, x_mm, y_mm, bullet_d_mm, sighter, face_id FROM shotmarker_shots WHERE performance_id=? ORDER BY idx",
+        (pid,)).fetchall()
+    if not shots:
+        return
+    face = shots[0]["face_id"]
+    orig = conn.execute("SELECT orig_face FROM performance WHERE id=?", (pid,)).fetchone()["orig_face"]
+    face_def = FACES.get(face)
+    # Unknown faces, and the few the device scores with polygons (rescore:false), can't be re-scored from rings
+    if not face_def or face_def.get("rescore") is False or (orig and orig == face):
+        _clear_rescore(conn, pid)
+        return
+    scored = []
+    for sh in shots:
+        sc = ring_score(sh["x_mm"], sh["y_mm"], sh["bullet_d_mm"], face_def)
+        conn.execute("UPDATE shotmarker_shots SET rescore=? WHERE id=?", (sc, sh["id"]))
+        scored.append({"score": sc, "sighter": sh["sighter"]})
+    total, text = compute_score(scored, face)
+    conn.execute("UPDATE performance SET rescore_text=?, rescore_total=?, rescore_face=? WHERE id=?", (text, total, face, pid))
 
 def get_settings():
     conn = get_db()
@@ -732,6 +820,7 @@ def update_performance(pid):
     face = str(data.get("face_id") or "").strip()
     if face:
         conn.execute("UPDATE shotmarker_shots SET face_id=? WHERE performance_id=?", (face, pid))
+        _apply_rescore(conn, pid)
     if "use_score" in data:
         conn.execute("UPDATE performance SET use_score=? WHERE id=?",
                      (1 if data["use_score"] in (True, 1, "1", "true") else 0, pid))
@@ -897,7 +986,8 @@ def _clean_match_stages(stages):
 def _match_json(conn, row):
     m = dict(row)
     m["stages"] = [dict(r) for r in conn.execute("""
-        SELECT s.*, p.lot_number, p.date AS session_date, p.score_text, p.score_total, p.use_score
+        SELECT s.*, p.lot_number, p.date AS session_date, p.score_text, p.score_total, p.use_score,
+               p.rescore_text, p.rescore_total
         FROM match_stages s LEFT JOIN performance p ON p.id = s.performance_id
         WHERE s.match_id=? ORDER BY s.idx, s.id""", (m["id"],)).fetchall()]
     f = conn.execute("SELECT name FROM firearms WHERE id=?", (m["firearm_id"],)).fetchone() if m["firearm_id"] else None
@@ -1333,7 +1423,8 @@ def save_perf_shots(pid):
 
     # A fresh import means the score is the device's original again, so it's trusted
     _store_score(conn, pid)
-    conn.execute("UPDATE performance SET use_score=1 WHERE id=?", (pid,))
+    conn.execute("UPDATE performance SET use_score=1, orig_face=?, rescore_text=NULL, rescore_total=NULL, rescore_face=NULL WHERE id=?",
+                 (face_id or None, pid))
 
     # Auto-update performance stats from selected record shots
     stats = compute_stats(shots)
@@ -1371,7 +1462,8 @@ def save_perf_shots(pid):
 def delete_perf_shots(pid):
     conn = get_db()
     conn.execute("DELETE FROM shotmarker_shots WHERE performance_id=?", (pid,))
-    conn.execute("UPDATE performance SET score_text=NULL, score_total=NULL WHERE id=?", (pid,))
+    conn.execute("UPDATE performance SET score_text=NULL, score_total=NULL, orig_face=NULL, "
+                 "rescore_text=NULL, rescore_total=NULL, rescore_face=NULL WHERE id=?", (pid,))
     conn.commit()
     conn.close()
     return jsonify({"ok": True})

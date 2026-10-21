@@ -37,7 +37,7 @@ mod("werkzeug.middleware.proxy_fix", ProxyFix=lambda app, **k: app)
 mod("reportlab"); mod("reportlab.lib", colors=None); mod("reportlab.lib.pagesizes", inch=72)
 mod("reportlab.pdfgen", canvas=None)
 
-ns = {"__name__": "app_under_test"}
+ns = {"__name__": "app_under_test", "__file__": os.path.join(ROOT, "app.py")}
 exec(compile(open(os.path.join(ROOT, "app.py"), encoding="utf-8").read(), "app.py", "exec"), ns)
 
 results = []
@@ -324,6 +324,114 @@ spare = call(ns["create_firearm"], {"name": "Spare upper"})["id"]
 call(ns["add_round_log"], {"rounds": 5}, spare)
 call(ns["delete_firearm"], None, spare)
 check("deleting a rifle clears its round log", con.execute("SELECT COUNT(*) FROM round_log WHERE firearm_id=?", (spare,)).fetchone()[0] == 0)
+
+# ── re-scoring on another target face ─────────────────────────
+import json, math, re as _re
+FACES = ns["FACES"]
+page = open(os.path.join(ROOT, "static", "index.html"), encoding="utf-8").read()
+check("the ring tables load from static/faces.js: 58 faces, each named with rings", len(FACES) == 58 and all(f.get("name") and f.get("rings") for f in FACES.values()), len(FACES))
+check("the page loads faces.js and carries no copy of its own", '<script src="/static/faces.js"></script>' in page and "const SM_FACES={" not in page)
+check("faces.js is the JS the page needs: it defines SM_FACES", open(os.path.join(ROOT, "static", "faces.js"), encoding="utf-8").read().count("const SM_FACES={") == 1)
+check("every face lists its rings from the inside out", all([r["r"] for r in f["rings"]] == sorted(r["r"] for r in f["rings"]) for f in FACES.values()))
+check("every ring value is X, V or a whole number", all(r["score"] in ("X", "V") or isinstance(r["score"], int) for f in FACES.values() for r in f["rings"]))
+
+rs = ns["ring_score"]
+mr1 = FACES["NRA_MR1"]
+check("a shot whose bullet edge just touches the X ring is an X", rs(79.04, 0, 5.69, mr1) == "X" and rs(0, 0, 5.69, mr1) == "X")
+check("a hair outside that is a 10", rs(79.06, 0, 5.69, mr1) == "10")
+check("far outside every ring is a miss", rs(5000, 0, 5.69, mr1) == "0")
+check("a shot with no position can't be scored", rs(None, 3, 5.69, mr1) is None)
+
+# The rules below are the device's own (calc_shot_score in ShotMarker software 122d): strict "<" on the ring edge,
+# the board's value outside every ring, and nothing off the board.
+toy = {"rings": [{"r": 10, "score": "X"}, {"r": 20, "score": 9}], "board": {"w": 100, "h": 100, "score": 1}}
+check("a shot exactly touching a ring's outside edge takes the lower value (the device uses <)",
+      rs(11.99, 0, 4, toy) == "X" and rs(12.0, 0, 4, toy) == "9" and rs(21.99, 0, 4, toy) == "9" and rs(22.0, 0, 4, toy) == "1")
+check("outside every ring but on the board scores the board's value", rs(30, 0, 4, toy) == "1" and rs(0, -45, 4, toy) == "1")
+check("beyond the board edge plus the bullet radius it scores nothing", rs(52.0, 0, 4, toy) == "1" and rs(52.01, 0, 4, toy) == "0" and rs(0, 60, 4, toy) == "0")
+check("a board worth nothing gives 0", rs(30, 0, 4, {**toy, "board": {"w": 100, "h": 100, "score": 0}}) == "0")
+check("with no bullet size the device's 7.82 mm is assumed", rs(13.9, 0, None, toy) == "X" and rs(13.92, 0, None, toy) == "9")
+fc600 = FACES["IF600y"]
+check("on the F-Class face a hit outside the last ring but on the board scores 1, and off the board 0",
+      rs(470, 0, 5.69, fc600) == "1" and rs(905, 0, 5.69, fc600) == "0", (fc600["board"], fc600["rings"][-1]))
+check("every face carries its board and the value of its X or V",
+      all(f.get("board", {}).get("w") and f["board"].get("h") and f.get("score") for f in FACES.values()))
+bad_sp = [fid for fid, f in FACES.items() if len(f["score"]) > 1
+          and ns["compute_score"]([{"score": f["score"][1], "sighter": 0}], fid)[0] != f["score"][0]]
+check("what an X or V counts agrees with the device's definition on all 58 faces", not bad_sp, bad_sp)
+check("an X counts 6 on the ICFRA 'IFX' faces and 10 on the NRA F-Class faces; a V counts 5",
+      ns["compute_score"]([{"score": "X"}], "IFX600y")[0] == 6 and ns["compute_score"]([{"score": "X"}], "NRA_MR1FC")[0] == 10
+      and ns["compute_score"]([{"score": "V"}], "IF600y")[0] == 5)
+check("the faces the device scores with polygons are marked so they are never re-scored",
+      sorted(fid for fid, f in FACES.items() if f.get("rescore") is False) == ["FCSA_MR1", "IBS1000BR", "IBS600BR"])
+check("the position can be on either axis", rs(0, -79.04, 5.69, mr1) == "X" and rs(55.88, 55.88, 5.69, mr1) == "X" and rs(55.95, 55.95, 5.69, mr1) == "10")
+
+mism = []
+for sess in sessions:                       # the three real strings decoded from the ShotMarker export
+    face_def = FACES[sess["face_id"]]
+    for sh in sess["shots"]:
+        if rs(sh["x_mm"], sh["y_mm"], sess["bullet_d_mm"], face_def) != str(sh["score"]):
+            mism.append((sess["session_id"], sh["label"]))
+check("re-scoring the real shots on their own face reproduces ShotMarker's scores exactly", not mism and sum(len(x["shots"]) for x in sessions) == 44, mism)
+
+realC = [x for x in sessions if len(x["shots"]) == 22][0]
+rp = call(ns["create_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA"})["id"]
+request.method = "POST"
+call(ns["save_perf_shots"], {"shots": realC["shots"], "face_id": "NRA_MR1", "distance": 600, "dist_unit": "y",
+                             "bullet_d_mm": realC["bullet_d_mm"]}, rp)
+r0 = row(rp)
+check("an import records the face it was scored on and has no re-score", r0["orig_face"] == "NRA_MR1" and r0["rescore_text"] is None and r0["score_text"] == "191-5X", r0)
+
+request.method = "PUT"
+up = call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NRA_MR1FC"}, rp)
+r1 = row(rp)
+check("changing to a smaller face re-scores the shots and keeps the device score",
+      r1["score_text"] == "191-5X" and r1["rescore_face"] == "NRA_MR1FC" and r1["rescore_total"] is not None and r1["rescore_total"] < 191, r1)
+dev_scores = [x["score"] for x in realC["shots"]]
+kept = [r["score"] for r in con.execute("SELECT score FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (rp,))]
+check("each shot keeps ShotMarker's own score", kept == dev_scores)
+rescored = [r["rescore"] for r in con.execute("SELECT rescore FROM shotmarker_shots WHERE performance_id=? ORDER BY idx", (rp,))]
+check("each shot gets a re-score, and the smaller face is never kinder", all(x is not None for x in rescored)
+      and sum(1 for a, b in zip(rescored, dev_scores) if (10 if a == "X" else int(a)) > (10 if b == "X" else int(b))) == 0)
+check("the re-score keeps sighters out of the total", r1["rescore_text"] == ns["compute_score"](
+      [{"score": a, "sighter": s["sighter"]} for a, s in zip(rescored, realC["shots"])], "NRA_MR1FC")[1], r1["rescore_text"])
+check("the list carries the re-score", [x for x in call(ns["list_performance"]) if x["id"] == rp][0]["rescore_text"] == r1["rescore_text"])
+
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NRA_MR1"}, rp)
+r2 = row(rp)
+check("changing back to the face it was imported on removes the re-score",
+      r2["rescore_text"] is None and r2["rescore_total"] is None and r2["rescore_face"] is None
+      and con.execute("SELECT COUNT(*) FROM shotmarker_shots WHERE performance_id=? AND rescore IS NOT NULL", (rp,)).fetchone()[0] == 0)
+
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 300, "distance_unit": "yd", "group_unit": "MOA"}, rp)
+check("a distance change alone does not re-score", row(rp)["rescore_text"] is None)
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 300, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NRA_MR1FC"}, rp)
+check("a face change on a session at another distance re-scores", row(rp)["rescore_text"] is not None)
+call(ns["save_perf_shots"], {"shots": realC["shots"], "face_id": "NRA_MR1", "distance": 600, "dist_unit": "y",
+                             "bullet_d_mm": realC["bullet_d_mm"]}, rp)
+check("importing again starts clean", row(rp)["rescore_text"] is None and row(rp)["orig_face"] == "NRA_MR1")
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NOT_A_FACE"}, rp)
+check("an unknown face is not scored", row(rp)["rescore_text"] is None)
+call(ns["update_performance"], {"lot_number": "RS1", "distance": 600, "distance_unit": "yd", "group_unit": "MOA", "face_id": "NRA_MR1FC"}, rp)
+call(ns["delete_perf_shots"], None, rp)
+check("deleting the shots clears the re-score too", row(rp)["rescore_text"] is None and row(rp)["orig_face"] is None)
+
+# Sessions already switched off before this feature get re-scored once on their current face
+op = call(ns["create_performance"], {"lot_number": "RS2", "distance": 600, "distance_unit": "yd"})["id"]
+request.method = "POST"
+call(ns["save_perf_shots"], {"shots": realC["shots"], "face_id": "NRA_MR1FC", "distance": 600, "dist_unit": "y",
+                             "bullet_d_mm": realC["bullet_d_mm"]}, op)
+con.execute("UPDATE performance SET use_score=0, orig_face=NULL, rescore_text=NULL, rescore_total=NULL, rescore_face=NULL WHERE id=?", (op,))
+con.commit()
+call(ns["init_db"])
+ro = row(op)
+check("an older session with its score switched off is re-scored on its current face", ro["orig_face"] == "?" and ro["rescore_text"] is not None and ro["rescore_face"] == "NRA_MR1FC", ro)
+ok = call(ns["create_performance"], {"lot_number": "RS3", "distance": 600, "distance_unit": "yd"})["id"]
+call(ns["save_perf_shots"], {"shots": realC["shots"], "face_id": "NRA_MR1", "distance": 600, "dist_unit": "y",
+                             "bullet_d_mm": realC["bullet_d_mm"]}, ok)
+con.execute("UPDATE performance SET orig_face=NULL WHERE id=?", (ok,)); con.commit()
+call(ns["init_db"])
+check("an older session with its score still on keeps its face as the original and no re-score", row(ok)["orig_face"] == "NRA_MR1" and row(ok)["rescore_text"] is None)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d/%d passed" % (sum(results), len(results)))

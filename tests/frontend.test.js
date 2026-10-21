@@ -143,7 +143,24 @@ function runTests(scripts) {
   check('start/end plan: shifted pairing and outside shots', plan.map[3] === 0 && plan.map[24] === 21 && plan.map[25] == null && [...plan.outside].join() === '0,1,2,25', [plan.map[3], plan.map[24], [...plan.outside]]);
 
   // 5. Matches: totals, session suggestions, automatic linking, personal bests
-  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'fmtScore', 'computeRecords', 'lifeStatus', 'fmtN']);
+  const mt = load(['parseXCount', 'matchTotals', 'dayNum', 'sameDist', 'sessionSuggestions', 'autoAssignSessions', 'stageKey', 'stageRank', 'fmtScore', 'computeRecords', 'lifeStatus', 'fmtN',
+                   'sessionMatchScore', 'sessionScoreText', 'shotScoreLabel']);
+  // Re-scored sessions: ShotMarker's score stays, the re-score is shown beside it and used for matches
+  const dev = { score_total: 191, score_text: '191-5X', use_score: 1 };
+  check('a match stage takes ShotMarker\'s score when there is no re-score', JSON.stringify(mt.sessionMatchScore(dev)) === '{"score":191,"x":5}');
+  check('a match stage takes the re-score when the face was changed',
+        JSON.stringify(mt.sessionMatchScore({ ...dev, rescore_total: 188, rescore_text: '188-4X' })) === '{"score":188,"x":4}');
+  check('the re-score is used even when ShotMarker\'s score was switched off',
+        mt.sessionMatchScore({ ...dev, use_score: 0, rescore_total: 188, rescore_text: '188-4X' }).score === 188);
+  check('a switched-off score with no re-score gives nothing to copy', mt.sessionMatchScore({ ...dev, use_score: 0 }) === null && mt.sessionMatchScore({}) === null);
+  check('session pickers mark a re-score only when it differs',
+        mt.sessionScoreText({ ...dev, rescore_text: '188-4X' }) === '188-4X (re-scored)' && mt.sessionScoreText({ ...dev, rescore_text: '191-5X' }) === '191-5X'
+        && mt.sessionScoreText(dev) === '191-5X' && mt.sessionScoreText({}) === '');
+  check('a shot shows ShotMarker\'s score, then the re-score after an arrow when it differs',
+        mt.shotScoreLabel('10', '9', true) === '10 → 9' && mt.shotScoreLabel('X', '10', true) === 'X → 10'
+        && mt.shotScoreLabel('10', '10', true) === '10' && mt.shotScoreLabel('10', null, true) === '10' && mt.shotScoreLabel('10', '', true) === '10');
+  check('with the score switched off a shot shows only its re-score',
+        mt.shotScoreLabel('10', '9', false) === '9' && mt.shotScoreLabel('10', null, false) === '' && mt.shotScoreLabel('', null, true) === '');
   check('barrel life: under 80% is fine, 80% warns, 100% and over is an error',
         mt.lifeStatus(1000, 3000).level === '' && mt.lifeStatus(2400, 3000).level === 'warn' && mt.lifeStatus(2999, 3000).level === 'warn'
         && mt.lifeStatus(3000, 3000).level === 'err' && mt.lifeStatus(3500, 3000).level === 'err');
