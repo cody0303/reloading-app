@@ -808,22 +808,38 @@ def delete_round_log(lid):
     return jsonify(out)
 
 # ── Performance ───────────────────────────────────────────────
-# A timed stage can be shot as several strings (rapid fire: two strings with a magazine change between). A gap longer
-# than this starts a new string. The page reads it from each timed session's row (string_gap_s), so it lives only here.
+# A timed stage can be shot as several strings (rapid fire: two strings with a magazine change between). In fast fire,
+# where the typical gap between shots is under STRING_FAST_S, a pause longer than STRING_GAP_S starts a new string. Slow
+# fire (a shot every 30 s or so) is always one string, however long a pause in it. The page never splits shots itself:
+# each shot comes from the server with its string number.
 STRING_GAP_S = 20
+STRING_FAST_S = 10
+
+def _string_groups(conn, pid):
+    """The session's record shots with times, as a list of strings, each a list of (shot id, ts) in time order."""
+    shots = sorted(((r["id"], r["ts"]) for r in conn.execute(
+        "SELECT id, ts FROM shotmarker_shots WHERE performance_id=? AND sighter=0 AND ts IS NOT NULL", (pid,))),
+        key=lambda x: x[1])
+    if not shots:
+        return []
+    gaps = [(b[1] - a[1]) / 1000.0 for a, b in zip(shots, shots[1:])]
+    if not gaps:
+        return [shots]
+    typical = sorted(gaps)[len(gaps) // 2]
+    limit = STRING_GAP_S if typical < STRING_FAST_S else float("inf")
+    out = [[shots[0]]]
+    for gap, shot in zip(gaps, shots[1:]):
+        if gap > limit:
+            out.append([])
+        out[-1].append(shot)
+    return out
 
 def _string_times(conn, pid):
     """Seconds from first to last shot of each string in a session, or None when it has no timed shots."""
-    ts = sorted(r["ts"] for r in conn.execute(
-        "SELECT ts FROM shotmarker_shots WHERE performance_id=? AND sighter=0 AND ts IS NOT NULL", (pid,)))
-    if len(ts) < 2:
+    groups = _string_groups(conn, pid)
+    if sum(len(g) for g in groups) < 2:
         return None
-    out, start = [], 0
-    for i in range(1, len(ts) + 1):
-        if i == len(ts) or (ts[i] - ts[i - 1]) / 1000.0 > STRING_GAP_S:
-            out.append(round((ts[i - 1] - ts[start]) / 1000.0, 3))
-            start = i
-    return out
+    return [round((g[-1][1] - g[0][1]) / 1000.0, 3) for g in groups]
 
 def _perf_dicts(conn, rows):
     """Performance rows as dicts; a session on a timed stage also gets its per-string times."""
@@ -831,7 +847,6 @@ def _perf_dicts(conn, rows):
     for r in rows:
         d = dict(r)
         d["string_times"] = _string_times(conn, d["id"]) if d.get("stage_time_limit") else None
-        d["string_gap_s"] = STRING_GAP_S if d.get("stage_time_limit") else None
         out.append(d)
     return out
 
@@ -1524,8 +1539,14 @@ def get_perf_shots(pid):
         "SELECT * FROM shotmarker_shots WHERE performance_id=? ORDER BY idx",
         (pid,)
     ).fetchall()
+    shots = [dict(r) for r in rows]
+    # On a timed stage each record shot says which string it belongs to (0, 1, ...); elsewhere it is one string
+    if conn.execute("SELECT 1 FROM match_stages WHERE performance_id=? AND time_limit IS NOT NULL", (pid,)).fetchone():
+        number = {sid: n for n, g in enumerate(_string_groups(conn, pid)) for sid, _ in g}
+        for s in shots:
+            s["string"] = number.get(s["id"])
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(shots)
 
 @app.route("/api/performance/<int:pid>/shots", methods=["POST"])
 def save_perf_shots(pid):

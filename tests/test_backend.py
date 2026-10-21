@@ -573,7 +573,28 @@ call(ns["update_match"], {"name": "Timing match", "date": "2026-10-01", "course_
 pt = {x["id"]: x for x in call(ns["list_performance"])}
 check("on a timed stage the long gap splits the string, each timed first to last", pt[ps2]["string_times"] == [12.0, 12.0] and pt[ps]["string_times"] == [26.0], (pt[ps2]["string_times"], pt[ps]["string_times"]))
 ml = [m for m in call(ns["list_matches"]) if m["id"] == tm["id"]][0]
-check("a timed session carries the split length for the page to use", pt[ps2]["string_gap_s"] == 20 and pt[ps2]["string_gap_s"] == ns["STRING_GAP_S"] and row_ps2["string_gap_s"] is None)
+shots_ps2 = call(ns["get_perf_shots"], None, ps2)
+check("on a timed stage each record shot says which string it is in", [x["string"] for x in shots_ps2] == [0] * 5 + [1] * 5, [x.get("string") for x in shots_ps2])
+ps3 = call(ns["create_performance"], {"lot_number": "T4", "distance": 300, "distance_unit": "yd", "date": "2026-10-01"})["id"]
+con.execute("INSERT INTO shotmarker_shots (performance_id, idx, label, score, sighter, ts) VALUES (?,?,?,?,?,?)", (ps3, 0, "0", "10", 0, 5000))
+con.commit()
+check("a session not on a timed stage numbers no strings", all("string" not in x for x in call(ns["get_perf_shots"], None, ps3)))
+# Slow fire has a 20 minute limit too, with a shot every 30 s or so: that is one string, not twenty
+request.method = "POST"
+sc = call(ns["create_course"], {"name": "Slow course", "stages": [{"name": "Slow Fire Prone", "distance": 600, "shots": 20, "time_limit": "20 min"}]})
+sm = call(ns["create_match"], {"name": "Slow match", "date": "2026-10-03", "course_id": sc["id"]})
+ps4 = call(ns["create_performance"], {"lot_number": "T5", "distance": 600, "distance_unit": "yd", "date": "2026-10-03"})["id"]
+t = 0
+for i, gap in enumerate([0] + [28, 31, 45, 36, 52, 29, 33, 41, 38, 27, 60, 35, 30, 44, 39, 32, 47, 34, 150]):
+    t += gap * 1000
+    con.execute("INSERT INTO shotmarker_shots (performance_id, idx, label, score, sighter, ts) VALUES (?,?,?,?,?,?)", (ps4, i, str(i), "10", 0, t))
+con.commit()
+sm["stages"][0]["performance_id"] = ps4
+request.method = "PUT"
+call(ns["update_match"], {"name": "Slow match", "date": "2026-10-03", "course_id": sc["id"], "course_name": "Slow course", "stages": sm["stages"]}, sm["id"])
+slow_row = [x for x in call(ns["list_performance"]) if x["id"] == ps4][0]
+check("slow fire with long gaps is one string, even with a long pause in it", len(slow_row["string_times"]) == 1 and slow_row["string_times"][0] > 700, slow_row["string_times"])
+check("and its shots all carry string 0", {x["string"] for x in call(ns["get_perf_shots"], None, ps4)} == {0})
 check("the match's stage carries the per-string times", ml["stages"][2]["string_times"] == [12.0, 12.0] and ml["stages"][1]["string_times"] is None, ml["stages"][2])
 
 # One-time fill for data that predates limits; it must not undo a limit you clear later

@@ -86,28 +86,29 @@ function runTests(scripts) {
   check('no limit means no limit text in the timing row', !/Limit|Over the/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 54200 }]), null)) && f.timingSpans(null, 60) === '');
 
   // Rapid fire: two strings of five with a magazine change between, each against the stage limit
+  const numbered = xs => xs.map((x, i) => ({ ts: x * 1000, string: i < 5 ? 0 : 1 }));
   const rapid = [0, 3, 6, 9, 12, 52, 55, 58, 61, 64].map(x => ({ ts: x * 1000 }));
-  const flat = f.stringTiming(rapid), two = f.stringTiming(rapid, 20);
-  check('without splitting, a magazine change makes one long string that looks over the limit',
+  const flat = f.stringTiming(rapid), two = f.stringTiming(numbered([0, 3, 6, 9, 12, 52, 55, 58, 61, 64]));
+  check('shots with no string number are one string, so a magazine change looks like one long string over the limit',
         flat.strings.length === 1 && flat.seconds === 64 && f.timingVerdict(flat.seconds, 60).over);
-  check('a gap over the split length starts a new string, each timed on its own, and gap figures leave the break out',
+  check('shots numbered into two strings are timed one string at a time, and gap figures leave the break out',
         two.strings.length === 2 && two.strings[0].seconds === 12 && two.strings[1].seconds === 12 && two.strings[1].n === 5
         && two.avg === 3 && two.max === 3 && two.min === 3 && two.gaps.length === 8, two);
-  const slow = [0, 3, 6, 9, 12, 52, 66, 80, 94, 114].map(x => ({ ts: x * 1000 }));
-  const spTwo = f.timingSpans(two, 60, 10), spSlow = f.timingSpans(f.stringTiming(slow, 20), 60, 10);
+  const slow = numbered([0, 3, 6, 9, 12, 52, 66, 80, 94, 114]);
+  const spTwo = f.timingSpans(two, 60, 10), spSlow = f.timingSpans(f.stringTiming(slow), 60, 10);
   check('each string is judged against the limit alone: both fine reads a per-string limit, one over names that string',
         /String 1 <b>12\.0 s<\/b> \(5 shots\)/.test(spTwo) && /String 2/.test(spTwo) && /Stage limit <b>60 s<\/b> per string/.test(spTwo) && !/over/i.test(spTwo)
         && /String 2 over the 60 s limit by 2\.0 s/.test(spSlow) && !/String 1 over/.test(spSlow));
   check('a lone shot in a string is allowed, and no gaps inside any string leaves gap figures out',
-        f.stringTiming([{ ts: 0 }, { ts: 60000 }], 20).avg === null && !/Gap avg/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 60000 }], 20), 70)));
+        f.stringTiming([{ ts: 0, string: 0 }, { ts: 60000, string: 1 }]).avg === null && !/Gap avg/.test(f.timingSpans(f.stringTiming([{ ts: 0, string: 0 }, { ts: 60000, string: 1 }]), 70)));
   check('a stage line lists the string times and goes red when any one is over',
         f.timingNote([12, 12], 60) === '12.0 s + 12.0 s per string, first to last shot · limit 60 s' && /over the 60 s limit/.test(f.timingNote([12, 63], 60))
         && f.timesOver([12, 63], 60) && !f.timesOver([12, 60], 60) && !f.timesOver([99], null) && f.timingNote([], 60) === 'Limit 60 s');
 
   check('limits read the way people say them: seconds, whole minutes, or minutes and seconds',
         f.fmtLimit(60) === '60 s' && f.fmtLimit(90) === '90 s' && f.fmtLimit(1200) === '20 min' && f.fmtLimit(125) === '2 m 05 s' && f.fmtLimit(190) === '3 m 10 s');
-  check('the limit box shows whole minutes as "20 min" and anything else as plain seconds, and leaves typed text alone',
-        f.limitField(1200) === '20 min' && f.limitField(60) === '60' && f.limitField(125) === '125' && f.limitField(null) === '' && f.limitField('20m') === '20m'
+  check('the limit box always shows a unit: whole minutes as "20 min", anything else as seconds, and leaves typed text alone',
+        f.limitField(1200) === '20 min' && f.limitField(60) === '60 s' && f.limitField(125) === '125 s' && f.limitField(null) === '' && f.limitField('20m') === '20m'
         && f.limitText(1200) === '20 min' && f.limitText('1:30') === '1:30' && f.limitText('') === '');
   check('a 20 minute stage names its limit in minutes in the timing row', /Stage limit <b>20 min<\/b>/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 54200 }]), 1200)));
 
