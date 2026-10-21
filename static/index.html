@@ -2105,6 +2105,11 @@ const PERF_COLS=[
   {key:'group_x',label:'Grp X',num:true,cell:r=>r.group_x?r.group_x+' '+r.group_unit:'—'},
   {key:'group_y',label:'Grp Y',num:true,cell:r=>r.group_y?r.group_y+' '+r.group_unit:'—'},
   {key:'num_shots',label:'Shots',num:true,cell:r=>r.num_shots||'—'},
+  {key:'string_seconds',label:'First to last',num:true,cell:r=>{
+    if(r.string_seconds==null) return '—';
+    const over=r.stage_time_limit&&+r.string_seconds>+r.stage_time_limit;
+    return `<span${over?' style="color:var(--err)" title="Over the stage time limit, before counting the time to the first shot"':' title="First shot to last shot. ShotMarker does not record the start command."'}>${fmtSec(+r.string_seconds)}</span>`;
+  }},
   {key:'score_total',label:'Score',num:true,cell:r=>{
     if(!r.score_text&&!r.rescore_text) return '—';
     // ShotMarker's own score stays; when the face was changed and the shots re-score differently, that shows under it
@@ -2372,7 +2377,8 @@ function pfInitShotCanvas(){
     ()=>{ const s=pfSmSelected; if(!s) return [];
           return s.shots.map((sh,i)=>({...sh, face_id:s.face_id, _dim:!pfShotSelected.has(i)})); },
     ()=>pfSmSelected?.bullet_d_mm||7.82,
-    null
+    null,
+    {showCenter:true}
   );
 }
 
@@ -2416,6 +2422,8 @@ function pfUpdateFromSelection(){
       if(ga!=null){ document.getElementById('pf-group').value=ga; statsHtml+=`<span>Group <b>${ga} ${grpUnit}</b></span>`; }
       if(gxa!=null){ document.getElementById('pf-group-x').value=gxa; statsHtml+=`<span>X <b>${gxa} ${grpUnit}</b></span>`; }
       if(gya!=null){ document.getElementById('pf-group-y').value=gya; statsHtml+=`<span>Y <b>${gya} ${grpUnit}</b></span>`; }
+      const ctrTxt=centerText(groupCenter(coord),distYds,grpUnit);
+      if(ctrTxt) statsHtml+=`<span>Center <b>${ctrTxt}</b></span>`;
       if(gxa!=null){ document.getElementById('pf-group-x').value=gxa; }
       if(gya!=null){ document.getElementById('pf-group-y').value=gya; }
     }
@@ -2423,6 +2431,8 @@ function pfUpdateFromSelection(){
     // Clear stat fields if nothing selected
     ['pf-vel','pf-sd','pf-es','pf-shots','pf-group','pf-group-x','pf-group-y'].forEach(id=>document.getElementById(id).value='');
   }
+  const tt=stringTiming(sel);
+  if(tt) statsHtml+=`<span title="${TIMING_TIP}">First to last shot <b>${fmtSec(tt.seconds)}</b></span>`;
   const sc=importScore(session,sel);
   const statsEl=document.getElementById('pf-live-stats');
   if(statsEl) statsEl.innerHTML=(sc?importScoreSpans(sc):'')+statsHtml;
@@ -3598,7 +3608,7 @@ function fillMatchLists(){
   sel.innerHTML='<option value="">— select rifle —</option>'+allFirearms.map(f=>`<option value="${f.id}">${escHtml(f.name)}${f.caliber?' ('+escHtml(f.caliber)+')':''}</option>`).join('');
 }
 function cloneCourseStages(c){
-  return c.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,score:'',x_count:'',performance_id:null,custom:false}));
+  return c.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,time_limit:s.time_limit||'',score:'',x_count:'',performance_id:null,custom:false}));
 }
 function openMatchModal(){
   matchEditId=null; matchEditCourseName=null;
@@ -3630,7 +3640,7 @@ function editMatch(id){
   document.getElementById('mg-course').value=m.course_id?String(m.course_id):'';
   document.getElementById('mg-firearm').value=m.firearm_id?String(m.firearm_id):'';
   matchStages=m.stages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit||'yd',shots:s.shots,
-    score:s.score==null?'':s.score,x_count:s.x_count==null?'':s.x_count,performance_id:s.performance_id||null,custom:!m.course_id}));
+    time_limit:s.time_limit||'',score:s.score==null?'':s.score,x_count:s.x_count==null?'':s.x_count,performance_id:s.performance_id||null,custom:!m.course_id}));
   document.getElementById('match-modal-title').textContent='Edit: '+m.name;
   document.getElementById('mg-save-text').textContent='Save Changes';
   document.getElementById('mg-delete-btn').style.display='';
@@ -3668,16 +3678,18 @@ function renderMatchStages(){
         <label class="sg-f" style="flex:1 1 72px;max-width:110px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="mgSet(${i},'distance',this.value)"></label>
         <label class="sg-f" style="flex:0 0 62px"><span>Unit</span><select class="sg-in" onchange="mgSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
         <label class="sg-f" style="flex:1 1 60px;max-width:90px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="mgSet(${i},'shots',this.value)"></label>
+        <label class="sg-f" style="flex:1 1 70px;max-width:100px"><span>Limit (s)</span><input class="sg-in" type="number" min="1" inputmode="numeric" placeholder="none" value="${escHtml(s.time_limit)}" oninput="mgSet(${i},'time_limit',this.value);mgNote(${i})"></label>
         ${s.custom?'':`<button class="icon-btn" title="Done editing" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">check</span></button>`}${rm(i)}
       </div>`:`
-      <div class="sg-title"><b>${escHtml(fmtStage({name:s.name,distance:s.distance,distance_unit:s.distance_unit}))} <span>· ${escHtml(s.shots)} shots</span></b>
+      <div class="sg-title"><b>${escHtml(fmtStage({name:s.name,distance:s.distance,distance_unit:s.distance_unit}))} <span>· ${escHtml(s.shots)} shots${s.time_limit?` · ${escHtml(s.time_limit)} s`:''}</span></b>
         <button class="icon-btn" title="Edit stage" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>${rm(i)}
       </div>`;
     return `
     <div class="sg">
       ${head}
       <div class="sg-row">
-        <label class="sg-f" style="flex:1 1 100%"><span>Session</span><select class="sg-in" onchange="mgSession(${i},this.value)">${mgSessionOptions(i)}</select></label>
+        <label class="sg-f" style="flex:1 1 100%"><span>Session</span><select class="sg-in" onchange="mgSession(${i},this.value)">${mgSessionOptions(i)}</select>
+          <span id="mg-note-${i}" style="text-transform:none;letter-spacing:0;font-size:11px;font-weight:400">${mgTimingNote(s)}</span></label>
         <label class="sg-f" style="flex:1 1 90px"><span>Score</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.score)}" oninput="mgSet(${i},'score',this.value)"></label>
         <label class="sg-f" style="flex:1 1 90px"><span>X</span><input class="sg-in" type="number" min="0" inputmode="numeric" value="${escHtml(s.x_count)}" oninput="mgSet(${i},'x_count',this.value)"></label>
       </div>
@@ -3686,7 +3698,16 @@ function renderMatchStages(){
   updateMatchTotals();
 }
 function mgSet(i,key,val){ matchStages[i][key]=val; updateMatchTotals(); }
-function mgAddStage(){ matchStages.push({name:'Stage '+(matchStages.length+1),distance:'',distance_unit:'yd',shots:10,score:'',x_count:'',performance_id:null,custom:true}); renderMatchStages(); }
+// Timing line under a stage's session: the string time for a rapid-fire stage, against its limit
+function mgTimingNote(s){
+  const p=s.performance_id?allPerf.find(x=>x.id===s.performance_id):null;
+  const txt=timingNote(p&&p.string_seconds!=null?p.string_seconds:null,s.time_limit);
+  if(!txt) return '';
+  const over=p&&p.string_seconds!=null&&+s.time_limit>0&&+p.string_seconds>+s.time_limit;
+  return `<span style="color:${over?'var(--err)':'var(--osv)'}">${escHtml(txt)}</span>`;
+}
+function mgNote(i){ const el=document.getElementById('mg-note-'+i); if(el) el.innerHTML=mgTimingNote(matchStages[i]); }
+function mgAddStage(){ matchStages.push({name:'Stage '+(matchStages.length+1),distance:'',distance_unit:'yd',shots:10,time_limit:'',score:'',x_count:'',performance_id:null,custom:true}); renderMatchStages(); }
 function mgToggleEdit(i){ matchStages[i]._edit=!matchStages[i]._edit; renderMatchStages(); }
 function mgRemove(i){ matchStages.splice(i,1); renderMatchStages(); }
 function updateMatchTotals(){
@@ -3758,6 +3779,9 @@ async function saveMatch(){
     if(s.score!==''&&(+s.score<0||+s.score>s.shots*10)){ snack(`"${s.name}": score must be 0–${s.shots*10}`,'err'); return; }
     if(s.x_count!==''&&(+s.x_count<0||+s.x_count>+s.shots)){ snack(`"${s.name}": X count can't exceed ${s.shots}`,'err'); return; }
   }
+  for(const s of matchStages){
+    if(s.time_limit!==''&&s.time_limit!=null&&!(+s.time_limit>=1)){ snack(`"${s.name}": the time limit must be at least 1 second, or blank`,'err'); return; }
+  }
   const course=allCourses.find(c=>String(c.id)===document.getElementById('mg-course').value);
   const data={
     name, date:document.getElementById('mg-date').value, location:document.getElementById('mg-location').value,
@@ -3765,7 +3789,7 @@ async function saveMatch(){
     firearm_id:document.getElementById('mg-firearm').value,
     course_id:course?course.id:'', course_name:course?course.name:(matchEditCourseName||''),
     stages:matchStages.map(s=>({name:s.name,distance:s.distance,distance_unit:s.distance_unit,shots:s.shots,
-      score:s.score,x_count:s.x_count,performance_id:s.performance_id})),
+      score:s.score,x_count:s.x_count,performance_id:s.performance_id,time_limit:s.time_limit})),
   };
   const btn=document.getElementById('mg-save-btn'); btn.disabled=true;
   try{
@@ -3804,7 +3828,7 @@ function openCourseModal(id){
   const c=id?allCourses.find(x=>x.id===id):null;
   document.getElementById('course-modal-title').textContent=c?'Edit: '+c.name:'Add Course';
   document.getElementById('cc-name').value=c?c.name:'';
-  courseStages=c?c.stages.map(s=>({...s,distance_unit:s.distance_unit||'yd'})):[{name:'Slow Fire Prone',distance:600,distance_unit:'yd',shots:20}];
+  courseStages=c?c.stages.map(s=>({...s,distance_unit:s.distance_unit||'yd',time_limit:s.time_limit||''})):[{name:'Slow Fire Prone',distance:600,distance_unit:'yd',shots:20,time_limit:''}];
   renderCourseStages();
   openModal('course-overlay');
 }
@@ -3815,13 +3839,14 @@ function renderCourseStages(){
       <label class="sg-f" style="width:84px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="ccSet(${i},'distance',this.value)"></label>
       <label class="sg-f" style="width:62px"><span>Unit</span><select class="sg-in" onchange="ccSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
       <label class="sg-f" style="width:70px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="ccSet(${i},'shots',this.value)"></label>
+      <label class="sg-f" style="width:80px"><span>Limit (s)</span><input class="sg-in" type="number" min="1" inputmode="numeric" placeholder="none" value="${escHtml(s.time_limit==null?'':s.time_limit)}" oninput="ccSet(${i},'time_limit',this.value)"></label>
       <button class="icon-btn" title="Move up" onclick="ccMove(${i},-1)"${i?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_upward</span></button>
       <button class="icon-btn" title="Move down" onclick="ccMove(${i},1)"${i<courseStages.length-1?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_downward</span></button>
       <button class="icon-btn" title="Remove stage" onclick="ccRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
     </div></div>`).join('');
 }
 function ccSet(i,k,v){ courseStages[i][k]=v; }
-function ccAdd(){ courseStages.push({name:'Slow Fire Prone',distance:'',distance_unit:'yd',shots:10}); renderCourseStages(); }
+function ccAdd(){ courseStages.push({name:'Slow Fire Prone',distance:'',distance_unit:'yd',shots:10,time_limit:''}); renderCourseStages(); }
 function ccRemove(i){ courseStages.splice(i,1); renderCourseStages(); }
 function ccMove(i,d){
   const j=i+d; if(j<0||j>=courseStages.length) return;
@@ -4276,7 +4301,7 @@ function smUpdateSelCount(){
   const el=document.getElementById('sm-sel-count');
   if(el) el.textContent=`${rec} record, ${sig} sighters`;
   smUpdateStats('sm-stats-bar', smShots.filter((_,i)=>smSelected.has(i)&&!smShots[i].sighter),
-    {score:importScore(smSession,smShots.filter((_,i)=>smSelected.has(i)))});
+    {score:importScore(smSession,smShots.filter((_,i)=>smSelected.has(i))), timing:{t:stringTiming(smShots.filter((_,i)=>smSelected.has(i))),limit:null}});
 }
 
 // Score for an import screen: the one ShotMarker itself reports for the string, and a total for the shots
@@ -4297,6 +4322,61 @@ function mmToAngular(mm, distYd, unit){
   const rad=Math.atan2(mm,distMm);
   if(String(unit).toLowerCase()==='mil') return +(rad*1000).toFixed(3);
   return +(rad*(180/Math.PI)*60).toFixed(3);
+}
+
+// ── Group center: where the middle of the ticked shots sits relative to the point of aim ──
+function groupCenter(shots){
+  const p=shots.filter(s=>s.x_mm!=null&&s.y_mm!=null);
+  if(p.length<2) return null;
+  return {x:p.reduce((a,s)=>a+s.x_mm,0)/p.length, y:p.reduce((a,s)=>a+s.y_mm,0)/p.length, n:p.length};
+}
+// "0.60 MOA low · 0.20 MOA right" (positive y is high, positive x is right)
+function centerText(c,distYd,unit){
+  if(!c||!distYd) return '';
+  const ay=mmToAngular(Math.abs(c.y),distYd,unit), ax=mmToAngular(Math.abs(c.x),distYd,unit);
+  if(ay==null||ax==null) return '';
+  if(ay<0.005&&ax<0.005) return 'on center';
+  const u=String(unit).toLowerCase()==='mil'?'mil':'MOA';
+  return `${ay.toFixed(2)} ${u} ${c.y>=0?'high':'low'} · ${ax.toFixed(2)} ${u} ${c.x>=0?'right':'left'}`;
+}
+
+// ── String timing, from ShotMarker's shot times. These start at the FIRST shot: the time from the start command to
+// that shot is not recorded, so a time within the limit never proves the string was in time. What can be said is how
+// long the first shot could have taken, which is the limit minus the first-to-last time. ──
+function stringTiming(shots){
+  const t=shots.filter(s=>!s.sighter&&s.ts!=null&&s.ts!=='').map(s=>+s.ts).filter(x=>x===x).sort((a,b)=>a-b);
+  if(t.length<2) return null;
+  const gaps=t.slice(1).map((v,i)=>(v-t[i])/1000);
+  const seconds=(t[t.length-1]-t[0])/1000;
+  return {n:t.length,seconds,gaps,avg:seconds/gaps.length,min:Math.min(...gaps),max:Math.max(...gaps)};
+}
+function fmtSec(sec){
+  sec=Math.round(sec*10)/10;
+  if(sec>=120){ const m=Math.floor(sec/60), r=Math.round(sec-m*60); return `${m} m ${r<10?'0':''}${r} s`; }
+  return `${sec.toFixed(1)} s`;
+}
+// Against a stage limit: only "over" can be stated, since the time to the first shot is unknown
+function timingVerdict(seconds,limit){
+  return limit&&seconds>limit?{over:true,by:seconds-limit}:null;
+}
+const TIMING_TIP='ShotMarker records when each shot landed, not when the start command was given, so this runs from the first shot to the last.';
+function timingSpans(t,limit,expected){
+  if(!t) return '';
+  let h=`<span title="${TIMING_TIP}">First to last shot <b>${fmtSec(t.seconds)}</b></span><span>Gap avg <b>${fmtSec(t.avg)}</b></span><span>shortest <b>${fmtSec(t.min)}</b></span><span>longest <b>${fmtSec(t.max)}</b></span>`;
+  if(expected&&t.n<expected) h+=`<span style="color:var(--err);font-weight:500">${t.n} of ${expected} shots recorded</span>`;
+  const v=timingVerdict(t.seconds,limit);
+  if(v) h+=`<span style="color:var(--err);font-weight:500">Over the ${limit} s limit by ${fmtSec(v.by)} before counting the time to the first shot</span>`;
+  else if(limit) h+=`<span>Stage limit <b>${limit} s</b></span>`;
+  return h;
+}
+// One line for a match stage linked to a session: "54.2 s first to last shot · limit 60 s"
+function timingNote(seconds,limit){
+  const lim=+limit||0;
+  if(seconds==null||seconds===''){ return lim?`Limit ${lim} s`:''; }
+  const sec=+seconds, v=timingVerdict(sec,lim);
+  let t=`${fmtSec(sec)} first to last shot`;
+  if(lim) t+=v?` · over the ${lim} s limit`:` · limit ${lim} s`;
+  return t;
 }
 
 // opts.muzzle: array of muzzle speeds (fps), or null. When opts.layered is set the bar shows shots + group
@@ -4354,7 +4434,9 @@ function smUpdateStats(barId, shots, opts={}){
   if(groupAng!=null)  html+=`<span>Group: <b>${groupAng} ${grpUnit}</b></span>`;
   if(groupXAng!=null) html+=`<span>Grp X: <b>${groupXAng} ${grpUnit}</b></span>`;
   if(groupYAng!=null) html+=`<span>Grp Y: <b>${groupYAng} ${grpUnit}</b></span>`;
-  if(!opts.layered){ bar.innerHTML=html+(opts.score?importScoreSpans(opts.score):''); return; }
+  const ctrTxt=centerText(groupCenter(coord),distYd,grpUnit);
+  if(ctrTxt) html+=`<span>Center: <b>${ctrTxt}</b></span>`;
+  if(!opts.layered){ bar.innerHTML=html+(opts.score?importScoreSpans(opts.score):'')+(opts.timing?timingSpans(opts.timing.t,opts.timing.limit,opts.timing.expected):''); return; }
 
   if(opts.score){
     const sc=opts.score, re=sc.re;
@@ -4370,6 +4452,7 @@ function smUpdateStats(barId, shots, opts={}){
   let rows=line(html);
   if(opts.muzzle&&opts.muzzle.length) rows+=line(label('Muzzle')+velSpans(opts.muzzle,['Avg','SD','ES']));
   if(targetHtml) rows+=line(label('Target')+targetHtml);
+  if(opts.timing&&opts.timing.t) rows+=line(label('Timing')+timingSpans(opts.timing.t,opts.timing.limit,opts.timing.expected));
   bar.innerHTML=rows;
 }
 
@@ -4656,7 +4739,7 @@ function smMoaMm(dist,unit){
 }
 
 // hi: optional Set of shot indices to ring (hovered / pinned shot)
-function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi){
+function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi, center){
   const C=document.getElementById(canvasId); if(!C) return;
   const wrap=C.parentElement;
   const W=wrap.clientWidth, H=wrap.clientHeight;
@@ -4781,6 +4864,27 @@ function smRender(canvasId, shots, selected, zl, panX, panY, bulletD, faceId, hi
     }
     ctx.restore();
   });
+
+  // Center of the shots that are ticked, with a dashed line back to the point of aim, so the offset is visible
+  if(center){
+    const gc=groupCenter(order.filter(o=>!o.dim).map(o=>o.s));
+    if(gc){
+      const [gx,gy]=tc(gc.x,gc.y), [ox,oy]=tc(0,0);
+      ctx.save();
+      if(Math.hypot(gx-ox,gy-oy)>8){
+        ctx.setLineDash([5,4]); ctx.strokeStyle='rgba(21,101,192,0.75)'; ctx.lineWidth=1.3;
+        ctx.beginPath(); ctx.moveTo(ox,oy); ctx.lineTo(gx,gy); ctx.stroke(); ctx.setLineDash([]);
+      }
+      const r=Math.max(7,bR*1.2);
+      [[4.5,'#fff'],[2,'#1565C0']].forEach(([w,col])=>{
+        ctx.strokeStyle=col; ctx.lineWidth=w;
+        ctx.beginPath(); ctx.arc(gx,gy,r,0,Math.PI*2);
+        ctx.moveTo(gx-r*1.7,gy); ctx.lineTo(gx+r*1.7,gy); ctx.moveTo(gx,gy-r*1.7); ctx.lineTo(gx,gy+r*1.7);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+  }
 }
 
 // ── Canvas init & interaction ─────────────────────────────────
@@ -4853,7 +4957,7 @@ function smInitCanvas(){
 
 function smResizeAndDraw(){
   const shots=smShots.map((s,i)=>({...s,_i:i}));
-  smRender('sm-canvas',shots,smSelected,smZoomLevel,smPanX,smPanY,smSession?.bullet_d_mm,smSession?.face_id);
+  smRender('sm-canvas',shots,smSelected,smZoomLevel,smPanX,smPanY,smSession?.bullet_d_mm,smSession?.face_id,null,true);
 }
 function smZoom(f){smZoomLevel=Math.max(0.25,Math.min(30,smZoomLevel*f));smResizeAndDraw();}
 function smResetView(){smZoomLevel=1;smPanX=0;smPanY=0;if(smSession)smResizeAndDraw();}
@@ -4871,7 +4975,7 @@ function initInteractiveCanvas(cvId, getShots, getBulletD, onHover, opts={}){
 
   function draw(){
     smRender(cvId, getShots(), opts.getSelected?opts.getSelected():null, zl, panX, panY, getBulletD(),
-             opts.getFace?opts.getFace():undefined, opts.getHi?opts.getHi():null);
+             opts.getFace?opts.getFace():undefined, opts.getHi?opts.getHi():null, !!opts.showCenter);
   }
   function zoom(f){ zl=Math.max(0.25,Math.min(30,zl*f)); draw(); }
   function reset(){ zl=1; panX=0; panY=0; draw(); }
@@ -4955,7 +5059,7 @@ function smvHiSet(){
 
 function smvInitCanvas(){
   const ctrl=initInteractiveCanvas('smv-canvas',()=>smvShots,()=>smvSession?.bullet_d_mm||7.82,smvHover,
-    {getSelected:()=>smvSelected,getFace:()=>smvSession?.face_id,getHi:smvHiSet,onTap:smvTap});
+    {getSelected:()=>smvSelected,getFace:()=>smvSession?.face_id,getHi:smvHiSet,onTap:smvTap,showCenter:true});
   smvResizeAndDraw=ctrl.draw;
   smvZoom=f=>ctrl.zoom(f);
   smvResetView=()=>ctrl.reset();
@@ -4968,7 +5072,7 @@ function smvInitCanvas(){
 }
 
 function smvResizeAndDraw(){
-  smRender('smv-canvas',smvShots,smvSelected,smvZoomLevel,smvPanX,smvPanY,smvSession?.bullet_d_mm,smvSession?.face_id,smvHiSet());
+  smRender('smv-canvas',smvShots,smvSelected,smvZoomLevel,smvPanX,smvPanY,smvSession?.bullet_d_mm,smvSession?.face_id,smvHiSet(),true);
 }
 function smvZoom(f){smvZoomLevel=Math.max(0.25,Math.min(30,smvZoomLevel*f));smvResizeAndDraw();}
 function smvResetView(){smvZoomLevel=1;smvPanX=0;smvPanY=0;smvResizeAndDraw();}
@@ -5051,7 +5155,8 @@ function smvUpdateStats(){
     const reAll=scoreOf(smvShots.map(asRescored),face);
     if(reAll&&reAll!==all) score.re={all:reAll, checked:scoreOf(picked.map(asRescored),face), face:faceName(face)};
   }
-  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)), {layered:true, muzzle:muzzle.length?muzzle:null, score});
+  smUpdateStats('smv-stats-bar', smvShots.filter((_,i)=>smvSelected.has(i)),
+    {layered:true, muzzle:muzzle.length?muzzle:null, score, timing:{t:stringTiming(picked), limit:p&&p.stage_time_limit, expected:p&&p.stage_shots}});
 }
 
 // ── Hover tooltip (desktop only) ──────────────────────────────
@@ -5090,13 +5195,12 @@ function smvAng(mm){
   const a=mmToAngular(Math.abs(mm),yd,perfUnits().angle);
   return a==null?'':`${a} ${perfUnits().angle}`;
 }
-function smvFmtGap(sec){ return sec<120?`${sec} s`:`${Math.floor(sec/60)} m ${sec%60} s`; }
 
 function smvShotInfo(i){
   const s=smvShots[i];
   const c=smvChrono.find(x=>x.sm_idx===s.idx)||null;
   const prev=i>0?smvShots[i-1]:null;
-  const gap=(prev&&s.ts&&prev.ts)?Math.round((s.ts-prev.ts)/1000):null;
+  const gap=(prev&&s.ts&&prev.ts&&!prev.sighter===!s.sighter)?(s.ts-prev.ts)/1000:null;
   const hasXY=s.x_mm!=null&&s.y_mm!=null;
   return {
     title:shotName(s,i)+(smvScoreText(s)?` · ${smvScoreText(s)}`:''),
@@ -5106,7 +5210,7 @@ function smvShotInfo(i){
     muzzle:c?fmtVel(c.speed_fps):null,
     loss:(c&&s.v_fps)?fmtVel(c.speed_fps-s.v_fps):null,
     time:c&&c.time?c.time:null,
-    gap:gap!=null?smvFmtGap(gap):null,
+    gap:gap!=null?fmtSec(gap):null,
     temp:s.temp_c!=null?`${s.temp_c} °C`:null,
     flags:[c&&c.cold_bore?'Cold bore':'', c&&c.clean_bore?'Clean bore':''].filter(Boolean),
     note:c&&c.notes?c.notes:null,
@@ -5119,7 +5223,8 @@ function smvTipHtml(i){
     +(d.offset?`<br>${d.offset}`:'')
     +(d.radius?`<br>r: ${d.radius}`:'')
     +(d.target?`<br>Target: ${d.target}`:'')
-    +(d.muzzle?`<br>Muzzle: ${d.muzzle}`:'');
+    +(d.muzzle?`<br>Muzzle: ${d.muzzle}`:'')
+    +(d.gap?`<br>Since last: ${d.gap}`:'');
 }
 
 function smvRenderCard(){
@@ -5139,7 +5244,7 @@ function smvRenderCard(){
   document.getElementById('smv-card-body').innerHTML=
     cell('Position',d.offset)+cell('From centre',d.radius)
     +cell('Target velocity',d.target)+cell('Muzzle velocity',d.muzzle)+cell('Velocity loss',d.loss)
-    +cell('Time (chronograph clock)',d.time)+cell('Since previous shot',d.gap)
+    +cell('Time (chronograph clock)',d.time)+cell('Since last shot',d.gap)
     +cell('Temperature',d.temp)+cell('Note',d.note?escHtml(d.note):null);
   card.style.display='block';
 }

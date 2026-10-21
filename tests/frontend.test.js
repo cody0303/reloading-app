@@ -44,12 +44,46 @@ function runTests(scripts) {
   function load(names) {
     const body = 'let pfSmSelected=null, pfChrono=null;\n' +
       'const SM_FACES={NRA_MR1:{score:[10,"X"]},IFX600y:{score:[6,"X"]},IF600y:{score:[5,"V"]},ISSFC200:{score:[10]},TRD:{score:[1]},' +
-      'TRD_OLD:{score:[5,"V"]}};\n' + names.map(grab).join('\n') +
+      'TRD_OLD:{score:[5,"V"]}};\nconst TIMING_TIP="tip";\n' + names.map(grab).join('\n') +
       '\nreturn {' + names.join(',') + ', set(sm,ch){pfSmSelected=sm;pfChrono=ch;}};';
     return new Function(body)();
   }
   const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
-                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats', 'importScore']);
+                  'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats', 'importScore',
+                   'groupCenter', 'centerText', 'stringTiming', 'fmtSec', 'timingVerdict', 'timingSpans', 'timingNote']);
+
+  // Group center: where the middle of the ticked shots sits against the point of aim
+  const gc = f.groupCenter([{ x_mm: 10, y_mm: -20 }, { x_mm: 30, y_mm: -40 }, { x_mm: null, y_mm: 5 }]);
+  check('group center is the average position of the shots that have one', gc && gc.x === 20 && gc.y === -30 && gc.n === 2, gc);
+  check('one shot (or none) has no group center', f.groupCenter([{ x_mm: 1, y_mm: 1 }]) === null && f.groupCenter([]) === null);
+  const ct = f.centerText({ x: 20, y: -30 }, 600, 'MOA');
+  check('center text says how far low and right in MOA', /^\d\.\d\d MOA low · \d\.\d\d MOA right$/.test(ct), ct);
+  check('center text reads high and left for the other signs, and in mil', /high/.test(f.centerText({ x: -20, y: 30 }, 600, 'MOA')) && /left/.test(f.centerText({ x: -20, y: 30 }, 600, 'MOA'))
+        && /mil low/.test(f.centerText({ x: 20, y: -30 }, 600, 'mil')));
+  check('a center on the aiming point reads on center, and no distance gives nothing', f.centerText({ x: 0.01, y: -0.01 }, 600, 'MOA') === 'on center' && f.centerText({ x: 20, y: 20 }, 0, 'MOA') === '' && f.centerText(null, 600, 'MOA') === '');
+  const bigX = Number(/(\d\.\d\d) MOA right/.exec(f.centerText({ x: 100, y: -30 }, 100, 'MOA'))[1]);
+  check('center in MOA matches the angular conversion (100 mm at 100 yd is about 3.76 MOA)', Math.abs(bigX - 3.76) < 0.01, bigX);
+
+  // String timing runs first shot to last shot: the start command is not recorded
+  const tmg = f.stringTiming([{ ts: 1010000 }, { ts: 1000000, sighter: true }, { ts: 1004000 }, { ts: 1000500 }]);
+  check('string timing is first to last record shot, sighters left out, in any order',
+        tmg && tmg.n === 3 && tmg.seconds === 9.5 && tmg.gaps.join() === '3.5,6' && tmg.avg === 4.75 && tmg.min === 3.5 && tmg.max === 6, tmg);
+  check('timing needs two shots with times', f.stringTiming([{ ts: 5 }]) === null && f.stringTiming([{ ts: null }, { ts: undefined }]) === null && f.stringTiming([]) === null);
+  const real = f.stringTiming(SM_TS.map((ts, i) => ({ ts, sighter: i < 2 })));
+  check('the real 20-shot string took about 705 s first to last (a slow-fire string)', real && real.n === 20 && Math.abs(real.seconds - 705.509) < 0.001, real && real.seconds);
+  check('times read as seconds, or minutes and seconds from two minutes', f.fmtSec(54.24) === '54.2 s' && f.fmtSec(125) === '2 m 05 s' && f.fmtSec(119.9) === '119.9 s');
+  const v2 = f.timingVerdict(63.1, 60);
+  check('only going over the limit is stated; being under it proves nothing',
+        f.timingVerdict(54.2, 60) === null && v2.over && Math.abs(v2.by - 3.1) < 1e-9 && f.timingVerdict(60, 60) === null && f.timingVerdict(50, null) === null);
+  check('a stage line states first to last and the limit, never "within the limit"',
+        f.timingNote(54.2, 60) === '54.2 s first to last shot · limit 60 s' && f.timingNote(63.1, 60) === '63.1 s first to last shot · over the 60 s limit'
+        && f.timingNote(54.2, null) === '54.2 s first to last shot' && f.timingNote(null, 60) === 'Limit 60 s' && f.timingNote(null, null) === '');
+  const t10 = f.stringTiming([{ ts: 0 }, { ts: 54200 }]), tOver = f.stringTiming([{ ts: 0 }, { ts: 63100 }]);
+  const sp = f.timingSpans(t10, 60, 2), spOver = f.timingSpans(tOver, 60, 2), spShort = f.timingSpans(t10, 60, 10);
+  check('the timing row shows the plain limit under it, flags going over, and flags a short string',
+        /First to last shot/.test(sp) && /Stage limit <b>60 s<\/b>/.test(sp) && !/had to come|Over the|recorded/.test(sp)
+        && /Over the 60 s limit by 3\.1 s before counting/.test(spOver) && /2 of 10 shots recorded/.test(spShort) && !/recorded/.test(f.timingSpans(t10, 60)));
+  check('no limit means no limit text in the timing row', !/Limit|Over the/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 54200 }]), null)) && f.timingSpans(null, 60) === '');
 
   // Import screens: the device's own score next to a total for the ticked shots, sighters never counted
   const imp = { face_id: 'NRA_MR1', group_text: '191-5X', shots: SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 })) };

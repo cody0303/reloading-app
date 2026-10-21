@@ -497,6 +497,65 @@ con.execute("UPDATE performance SET orig_face=NULL WHERE id=?", (ok,)); con.comm
 call(ns["init_db"])
 check("an older session with its score still on keeps its face as the original and no re-score", row(ok)["orig_face"] == "NRA_MR1" and row(ok)["rescore_text"] is None)
 
+# ── rapid-fire timing: stage time limits and the time a string took ──
+seed = {c[0]: {s["name"]: s.get("time_limit") for s in c[1]} for c in ns["DEFAULT_COURSES"]}
+check("the seeded courses give rapid-fire sitting 60 s and rapid-fire prone 70 s, and slow-fire stages no limit",
+      all(v.get("Rapid Fire Sitting") in (None, 60) and v.get("Rapid Fire Prone") in (None, 70) for v in seed.values())
+      and seed["National Match Course"] == {"Slow Fire Standing": None, "Rapid Fire Sitting": 60, "Rapid Fire Prone": 70, "Slow Fire Prone": None}
+      and seed["President's Rifle Course"]["Rapid Fire Prone"] == 70, seed["National Match Course"])
+request.method = "POST"
+tc = call(ns["create_course"], {"name": "Timing test", "stages": [
+    {"name": "Rapid", "distance": 200, "shots": 10, "time_limit": 60}, {"name": "Slow", "distance": 600, "shots": 20},
+    {"name": "Typed", "distance": 300, "shots": 10, "time_limit": "75"}]})
+check("a course stage keeps its time limit, blank means none, and a typed number is read", [s["time_limit"] for s in tc["stages"]] == [60, None, 75], tc["stages"])
+request.json = {"name": "Bad limit", "stages": [{"name": "R", "shots": 10, "time_limit": 0}]}
+check("a time limit of zero is refused", ns["create_course"]()[1] == 400)
+request.json = {"name": "Bad limit 2", "stages": [{"name": "R", "shots": 10, "time_limit": "soon"}]}
+check("a time limit that isn't a number is refused", ns["create_course"]()[1] == 400)
+request.json = {"name": "Bad limit 3", "stages": [{"name": "R", "shots": 10, "time_limit": -5}]}
+check("a negative time limit is refused", ns["create_course"]()[1] == 400)
+
+tm = call(ns["create_match"], {"name": "Timing match", "date": "2026-10-01", "course_id": tc["id"]})
+check("a match copies each stage's time limit from its course", [s["time_limit"] for s in tm["stages"]] == [60, None, 75], tm["stages"])
+request.json = {"name": "x", "stages": [{"name": "R", "shots": 10, "time_limit": 0}]}
+check("a match stage with a bad time limit is refused", ns["create_match"]()[1] == 400)
+
+ps = call(ns["create_performance"], {"lot_number": "T1", "distance": 200, "distance_unit": "yd", "date": "2026-10-01"})["id"]
+for i, ts in enumerate([1000000, 1004000, 1010000, 1016500, 1030000]):   # first one is a sighter; the string is 1004000 -> 1030000
+    con.execute("INSERT INTO shotmarker_shots (performance_id, idx, label, score, sighter, ts) VALUES (?,?,?,?,?,?)", (ps, i, str(i), "10", 1 if i == 0 else 0, ts))
+con.commit()
+row_ps = [x for x in call(ns["list_performance"]) if x["id"] == ps][0]
+check("a session reports how long its record shots took, first to last, leaving the sighter out", row_ps["string_seconds"] == 26.0 and row_ps["stage_time_limit"] is None, row_ps["string_seconds"])
+st_t = tm["stages"]
+st_t[0]["performance_id"] = ps
+request.method = "PUT"
+call(ns["update_match"], {"name": "Timing match", "date": "2026-10-01", "course_id": tc["id"], "course_name": "Timing test", "stages": st_t}, tm["id"])
+row_ps = [x for x in call(ns["list_performance"]) if x["id"] == ps][0]
+check("a session linked to a stage shows that stage's limit", row_ps["stage_time_limit"] == 60 and row_ps["string_seconds"] == 26.0, row_ps)
+ml = [m for m in call(ns["list_matches"]) if m["id"] == tm["id"]][0]
+check("the match's stage carries the session's string time", ml["stages"][0]["string_seconds"] == 26.0 and ml["stages"][1]["string_seconds"] is None, ml["stages"][0])
+empty = call(ns["create_performance"], {"lot_number": "T2"})["id"]
+check("a session with no shots has no string time", [x for x in call(ns["list_performance"]) if x["id"] == empty][0]["string_seconds"] is None)
+
+# One-time fill for data that predates limits; it must not undo a limit you clear later
+con.execute("INSERT INTO courses (name, stages) VALUES (?,?)", ("Old course", json.dumps([{"name": "Rapid Fire Prone", "distance": 300, "distance_unit": "yd", "shots": 10},
+                                                                                     {"name": "Slow Fire Prone", "distance": 600, "distance_unit": "yd", "shots": 20}])))
+con.execute("INSERT INTO matches (name, date) VALUES ('Old match', '2026-01-01')")
+mid_old = con.execute("SELECT id FROM matches WHERE name='Old match'").fetchone()[0]
+con.execute("INSERT INTO match_stages (match_id, idx, name, shots, score) VALUES (?,?,?,?,?)", (mid_old, 0, "Rapid Fire Sitting", 10, 90))
+con.execute("INSERT INTO match_stages (match_id, idx, name, shots, score) VALUES (?,?,?,?,?)", (mid_old, 1, "Slow Fire Prone", 20, 190))
+con.execute("DELETE FROM settings WHERE key='rapid_times_seeded'")
+con.commit()
+call(ns["init_db"])
+oc = [c for c in call(ns["list_courses"]) if c["name"] == "Old course"][0]
+check("older courses get the usual rapid-fire limit once, slow-fire stays blank", [s.get("time_limit") for s in oc["stages"]] == [70, None], oc["stages"])
+olds = [(r["name"], r["time_limit"]) for r in con.execute("SELECT name, time_limit FROM match_stages WHERE match_id=? ORDER BY idx", (mid_old,))]
+check("older match stages get it too", olds == [("Rapid Fire Sitting", 60), ("Slow Fire Prone", None)], olds)
+request.method = "PUT"
+call(ns["update_course"], {"name": "Old course", "stages": [{"name": "Rapid Fire Prone", "distance": 300, "shots": 10}]}, oc["id"])
+call(ns["init_db"])
+check("a limit you cleared stays cleared on the next start", [c for c in call(ns["list_courses"]) if c["name"] == "Old course"][0]["stages"][0].get("time_limit") is None)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

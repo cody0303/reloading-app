@@ -21,15 +21,18 @@ LOAD_COLUMNS = [
 
 # Highpower courses of fire (stage = name, distance, shots; 10 points a shot, X counted separately).
 # These only seed an empty courses table; edit them in Settings.
-def _stage(name, dist, shots):
-    return {"name": name, "distance": dist, "distance_unit": "yd", "shots": shots}
+def _stage(name, dist, shots, limit=None):
+    st = {"name": name, "distance": dist, "distance_unit": "yd", "shots": shots}
+    if limit:
+        st["time_limit"] = limit          # seconds allowed for the stage
+    return st
 
 _SFS, _RFSIT, _RFP, _SFP = "Slow Fire Standing", "Rapid Fire Sitting", "Rapid Fire Prone", "Slow Fire Prone"
 DEFAULT_COURSES = [
-    ("Highpower Rifle Standard Course", [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20), _stage(_RFP, 300, 20), _stage(_SFP, 600, 20)]),
-    ("Highpower Rifle Long Course",     [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20), _stage(_RFP, 300, 20), _stage(_SFP, 600, 40)]),
-    ("National Match Course",           [_stage(_SFS, 200, 10), _stage(_RFSIT, 200, 10), _stage(_RFP, 300, 10), _stage(_SFP, 600, 20)]),
-    ("President's Rifle Course",        [_stage(_SFS, 200, 10), _stage(_RFP, 300, 10), _stage(_SFP, 600, 10)]),
+    ("Highpower Rifle Standard Course", [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20, 60), _stage(_RFP, 300, 20, 70), _stage(_SFP, 600, 20)]),
+    ("Highpower Rifle Long Course",     [_stage(_SFS, 200, 20), _stage(_RFSIT, 200, 20, 60), _stage(_RFP, 300, 20, 70), _stage(_SFP, 600, 40)]),
+    ("National Match Course",           [_stage(_SFS, 200, 10), _stage(_RFSIT, 200, 10, 60), _stage(_RFP, 300, 10, 70), _stage(_SFP, 600, 20)]),
+    ("President's Rifle Course",        [_stage(_SFS, 200, 10), _stage(_RFP, 300, 10, 70), _stage(_SFP, 600, 10)]),
     ("Mid-Range 300/500/600 Match",     [_stage(_SFP, 300, 20), _stage(_SFP, 500, 20), _stage(_SFP, 600, 20)]),
     ("Mid-Range 3x600 Match",           [_stage(_SFP, 600, 20), _stage(_SFP, 600, 20), _stage(_SFP, 600, 20)]),
 ]
@@ -217,6 +220,7 @@ def init_db():
         ("performance", "rescore_total",          "INTEGER"),
         ("performance", "rescore_face",           "TEXT"),
         ("shotmarker_shots", "rescore",           "TEXT"),
+        ("match_stages", "time_limit",            "INTEGER"),
     ]
     for table, col, coldef in migrations:
         try:
@@ -243,6 +247,23 @@ def init_db():
             _apply_rescore(conn, r["id"])
         else:
             conn.execute("UPDATE performance SET orig_face=? WHERE id=?", (face, r["id"]))
+
+    # One-time: the usual rapid-fire limits (sitting 60 s, prone 70 s) for courses and match stages that predate them.
+    # Edit or clear them afterwards in Settings; this does not run again.
+    if not conn.execute("SELECT 1 FROM settings WHERE key='rapid_times_seeded'").fetchone():
+        limits = {"Rapid Fire Sitting": 60, "Rapid Fire Prone": 70}
+        for r in conn.execute("SELECT id, stages FROM courses").fetchall():
+            stages, changed = json.loads(r["stages"] or "[]"), False
+            for st in stages:
+                lim = limits.get(st.get("name"))
+                if lim and not st.get("time_limit"):
+                    st["time_limit"] = lim
+                    changed = True
+            if changed:
+                conn.execute("UPDATE courses SET stages=? WHERE id=?", (json.dumps(stages), r["id"]))
+        for name, lim in limits.items():
+            conn.execute("UPDATE match_stages SET time_limit=? WHERE name=? AND time_limit IS NULL", (lim, name))
+        conn.execute("INSERT INTO settings(key, value) VALUES('rapid_times_seeded', '1')")
 
     conn.commit()
     conn.close()
@@ -794,14 +815,20 @@ def list_performance():
     if lot:
         rows = conn.execute("""
             SELECT p.*, f.name as firearm_name,
-              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id,
+              (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id=p.id AND sighter=0) AS string_seconds,
+              (SELECT time_limit FROM match_stages WHERE performance_id=p.id) AS stage_time_limit,
+              (SELECT shots FROM match_stages WHERE performance_id=p.id) AS stage_shots FROM performance p
             LEFT JOIN firearms f ON p.firearm_id=f.id
             WHERE p.lot_number=? ORDER BY p.id DESC
         """, (lot,)).fetchall()
     else:
         rows = conn.execute("""
             SELECT p.*, f.name as firearm_name,
-              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id,
+              (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id=p.id AND sighter=0) AS string_seconds,
+              (SELECT time_limit FROM match_stages WHERE performance_id=p.id) AS stage_time_limit,
+              (SELECT shots FROM match_stages WHERE performance_id=p.id) AS stage_shots FROM performance p
             LEFT JOIN firearms f ON p.firearm_id=f.id
             ORDER BY p.id DESC
         """).fetchall()
@@ -823,7 +850,10 @@ def create_performance():
     conn.commit()
     row = conn.execute("""
         SELECT p.*, f.name as firearm_name,
-              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id,
+              (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id=p.id AND sighter=0) AS string_seconds,
+              (SELECT time_limit FROM match_stages WHERE performance_id=p.id) AS stage_time_limit,
+              (SELECT shots FROM match_stages WHERE performance_id=p.id) AS stage_shots FROM performance p
         LEFT JOIN firearms f ON p.firearm_id=f.id WHERE p.id=?
     """, (cur.lastrowid,)).fetchone()
     conn.close()
@@ -864,7 +894,10 @@ def update_performance(pid):
     conn.commit()
     row = conn.execute("""
         SELECT p.*, f.name as firearm_name,
-              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id FROM performance p
+              (SELECT face_id FROM shotmarker_shots WHERE performance_id=p.id LIMIT 1) AS face_id,
+              (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id=p.id AND sighter=0) AS string_seconds,
+              (SELECT time_limit FROM match_stages WHERE performance_id=p.id) AS stage_time_limit,
+              (SELECT shots FROM match_stages WHERE performance_id=p.id) AS stage_shots FROM performance p
         LEFT JOIN firearms f ON p.firearm_id=f.id WHERE p.id=?
     """, (pid,)).fetchone()
     conn.close()
@@ -922,6 +955,15 @@ def _to_int(v):
     except (TypeError, ValueError):
         return None
 
+def _clean_time_limit(raw, name):
+    """Seconds allowed for a stage: blank means no limit. Returns (seconds or None, error or None)."""
+    if raw is None or raw == "":
+        return None, None
+    n = _to_int(raw)
+    if n is None or n < 1:
+        return None, f"stage '{name}': the time limit must be a whole number of seconds, at least 1"
+    return n, None
+
 def _clean_course_stages(stages):
     """Stage list from the client -> (clean list, None) or (None, error text)."""
     if not isinstance(stages, list):
@@ -935,8 +977,12 @@ def _clean_course_stages(stages):
             return None, "every stage needs a name"
         if not shots or shots < 1:
             return None, f"stage '{name}' needs a shot count above 0"
+        limit, err = _clean_time_limit(st.get("time_limit"), name)
+        if err:
+            return None, err
         out.append({"name": name, "distance": _to_float(st.get("distance")) or None,
-                    "distance_unit": "m" if st.get("distance_unit") == "m" else "yd", "shots": shots})
+                    "distance_unit": "m" if st.get("distance_unit") == "m" else "yd", "shots": shots,
+                    "time_limit": limit})
     return out, None
 
 def _course_json(row):
@@ -1010,6 +1056,9 @@ def _clean_match_stages(stages):
             return None, f"stage '{name}': score must be between 0 and {shots * 10}"
         if xc is not None and not 0 <= xc <= shots:
             return None, f"stage '{name}': X count must be between 0 and {shots}"
+        limit, err = _clean_time_limit(st.get("time_limit"), name)
+        if err:
+            return None, err
         pid = _to_int(st.get("performance_id"))
         if pid is not None:
             if pid in seen:
@@ -1017,14 +1066,15 @@ def _clean_match_stages(stages):
             seen.add(pid)
         out.append({"name": name, "distance": _to_float(st.get("distance")) or None,
                     "distance_unit": "m" if st.get("distance_unit") == "m" else "yd",
-                    "shots": shots, "score": score, "x_count": xc, "performance_id": pid})
+                    "shots": shots, "score": score, "x_count": xc, "performance_id": pid, "time_limit": limit})
     return out, None
 
 def _match_json(conn, row):
     m = dict(row)
     m["stages"] = [dict(r) for r in conn.execute("""
         SELECT s.*, p.lot_number, p.date AS session_date, p.score_text, p.score_total, p.use_score,
-               p.rescore_text, p.rescore_total
+               p.rescore_text, p.rescore_total,
+               (SELECT (MAX(ts) - MIN(ts)) / 1000.0 FROM shotmarker_shots WHERE performance_id = s.performance_id AND sighter = 0) AS string_seconds
         FROM match_stages s LEFT JOIN performance p ON p.id = s.performance_id
         WHERE s.match_id=? ORDER BY s.idx, s.id""", (m["id"],)).fetchall()]
     f = conn.execute("SELECT name FROM firearms WHERE id=?", (m["firearm_id"],)).fetchone() if m["firearm_id"] else None
@@ -1048,9 +1098,10 @@ def _write_match(conn, mid, data, stages):
         conn.execute("DELETE FROM match_stages WHERE match_id=?", (mid,))
     for i, st in enumerate(stages):
         conn.execute(
-            "INSERT INTO match_stages (match_id, idx, name, distance, distance_unit, shots, score, x_count, performance_id) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (mid, i, st["name"], st["distance"], st["distance_unit"], st["shots"], st["score"], st["x_count"], st["performance_id"]))
+            "INSERT INTO match_stages (match_id, idx, name, distance, distance_unit, shots, score, x_count, performance_id, time_limit) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (mid, i, st["name"], st["distance"], st["distance_unit"], st["shots"], st["score"], st["x_count"],
+             st["performance_id"], st["time_limit"]))
     return mid
 
 def _save_match(mid):
