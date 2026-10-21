@@ -984,14 +984,27 @@ def _to_int(v):
     except (TypeError, ValueError):
         return None
 
+_TIME_FORMS = (
+    (re.compile(r"(\d+):([0-5]?\d)"), lambda m: int(m.group(1)) * 60 + int(m.group(2))),                  # 20:00, 1:30
+    (re.compile(r"(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)"), lambda m: float(m.group(1)) * 60),   # 20 min
+    (re.compile(r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)?"), lambda m: float(m.group(1))),       # 90, 90 s
+)
+
 def _clean_time_limit(raw, name):
-    """Seconds allowed for a stage: blank means no limit. Returns (seconds or None, error or None)."""
+    """Seconds allowed for a stage: blank means no limit. A bare number is seconds; "20 min" and "1:30" also work.
+    Returns (seconds or None, error or None)."""
     if raw is None or raw == "":
         return None, None
-    n = _to_int(raw)
-    if n is None or n < 1:
-        return None, f"stage '{name}': the time limit must be a whole number of seconds, at least 1"
-    return n, None
+    text = str(raw).strip().lower()
+    n = None
+    for pat, secs in _TIME_FORMS:
+        m = pat.fullmatch(text)
+        if m:
+            n = secs(m)
+            break
+    if n is None or n < 1 or n != int(n):
+        return None, f"stage '{name}': the time limit must be whole seconds, minutes like '20 min', or m:ss like '1:30' (at least 1 second)"
+    return int(n), None
 
 def _clean_course_stages(stages):
     """Stage list from the client -> (clean list, None) or (None, error text)."""
@@ -1040,6 +1053,12 @@ def _save_course(cid):
             cid = conn.execute("INSERT INTO courses(name, stages) VALUES(?,?)", (name, json.dumps(stages))).lastrowid
         else:
             conn.execute("UPDATE courses SET name=?, stages=? WHERE id=?", (name, json.dumps(stages), cid))
+            # A time limit belongs to the course's rules, so matches entered on it follow a change (scores and shot counts
+            # stay as entered). Stages are paired by name and distance; a stage renamed here keeps its old limit.
+            for st in stages:
+                conn.execute("UPDATE match_stages SET time_limit=? WHERE name=? AND IFNULL(distance,0)=IFNULL(?,0) "
+                             "AND match_id IN (SELECT id FROM matches WHERE course_id=?)",
+                             (st["time_limit"], st["name"], st["distance"], cid))
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()

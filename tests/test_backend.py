@@ -508,6 +508,10 @@ tc = call(ns["create_course"], {"name": "Timing test", "stages": [
     {"name": "Rapid", "distance": 200, "shots": 10, "time_limit": 60}, {"name": "Slow", "distance": 600, "shots": 20},
     {"name": "Typed", "distance": 300, "shots": 10, "time_limit": "75"}]})
 check("a course stage keeps its time limit, blank means none, and a typed number is read", [s["time_limit"] for s in tc["stages"]] == [60, None, 75], tc["stages"])
+for raw, want in [("20 min", 1200), ("20m", 1200), ("1.5 min", 90), ("20:00", 1200), ("1:30", 90), ("90s", 90), (" 75 ", 75), (60.0, 60), ("", None)]:
+    check(f"time limit {raw!r} reads as {want}", ns["_clean_time_limit"](raw, "S") == (want, None), ns["_clean_time_limit"](raw, "S"))
+for raw in ["0", "0:00", "1:75", "20 hours", "0.01 min", "1.5", "abc", "-5", "min"]:
+    check(f"time limit {raw!r} is refused", ns["_clean_time_limit"](raw, "S")[1] is not None, ns["_clean_time_limit"](raw, "S"))
 request.json = {"name": "Bad limit", "stages": [{"name": "R", "shots": 10, "time_limit": 0}]}
 check("a time limit of zero is refused", ns["create_course"]()[1] == 400)
 request.json = {"name": "Bad limit 2", "stages": [{"name": "R", "shots": 10, "time_limit": "soon"}]}
@@ -519,6 +523,25 @@ tm = call(ns["create_match"], {"name": "Timing match", "date": "2026-10-01", "co
 check("a match copies each stage's time limit from its course", [s["time_limit"] for s in tm["stages"]] == [60, None, 75], tm["stages"])
 request.json = {"name": "x", "stages": [{"name": "R", "shots": 10, "time_limit": 0}]}
 check("a match stage with a bad time limit is refused", ns["create_match"]()[1] == 400)
+
+# Changing a course's time limit carries to matches entered on it; scores and shot counts stay as entered
+request.method = "POST"
+fc = call(ns["create_course"], {"name": "Follow course", "stages": [
+    {"name": "Rapid", "distance": 200, "shots": 10, "time_limit": 60}, {"name": "Slow", "distance": 600, "shots": 20},
+    {"name": "Rapid", "distance": 300, "shots": 10, "time_limit": 70}]})
+fm = call(ns["create_match"], {"name": "Follow match", "date": "2026-10-02", "course_id": fc["id"]})
+fm["stages"][0]["score"] = 95
+request.method = "PUT"
+call(ns["update_match"], {"name": "Follow match", "date": "2026-10-02", "course_id": fc["id"], "course_name": "Follow course", "stages": fm["stages"]}, fm["id"])
+call(ns["update_course"], {"name": "Follow course", "stages": [
+    {"name": "Rapid", "distance": 200, "shots": 10, "time_limit": "20 min"}, {"name": "Slow", "distance": 600, "shots": 20, "time_limit": 90},
+    {"name": "Rapid", "distance": 300, "shots": 12}]}, fc["id"])
+fm2 = [m for m in call(ns["list_matches"]) if m["id"] == fm["id"]][0]
+check("editing a course's time limits updates its matches, pairing stages by name and distance, and a cleared limit clears",
+      [s["time_limit"] for s in fm2["stages"]] == [1200, 90, None], fm2["stages"])
+check("a course edit leaves the match's own scores and shot counts alone", fm2["stages"][0]["score"] == 95 and fm2["stages"][2]["shots"] == 10, fm2["stages"])
+other = [m for m in call(ns["list_matches"]) if m["id"] == tm["id"]][0]
+check("matches on other courses keep their limits", [s["time_limit"] for s in other["stages"]] == [60, None, 75], other["stages"])
 
 ps = call(ns["create_performance"], {"lot_number": "T1", "distance": 200, "distance_unit": "yd", "date": "2026-10-01"})["id"]
 for i, ts in enumerate([1000000, 1004000, 1010000, 1016500, 1030000]):   # first one is a sighter; the string is 1004000 -> 1030000

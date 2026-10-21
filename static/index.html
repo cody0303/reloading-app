@@ -3710,10 +3710,10 @@ function renderMatchStages(){
         <label class="sg-f" style="flex:1 1 72px;max-width:110px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="mgSet(${i},'distance',this.value)"></label>
         <label class="sg-f" style="flex:0 0 62px"><span>Unit</span><select class="sg-in" onchange="mgSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
         <label class="sg-f" style="flex:1 1 60px;max-width:90px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="mgSet(${i},'shots',this.value)"></label>
-        <label class="sg-f" style="flex:1 1 70px;max-width:100px"><span>Limit (s)</span><input class="sg-in" type="number" min="1" inputmode="numeric" placeholder="none" value="${escHtml(s.time_limit)}" oninput="mgSet(${i},'time_limit',this.value);mgNote(${i})"></label>
+        <label class="sg-f" style="flex:1 1 70px;max-width:100px"><span>Limit</span><input class="sg-in" type="text" title="Seconds, or minutes like 20 min, or 1:30" placeholder="none" value="${escHtml(limitField(s.time_limit))}" oninput="mgSet(${i},'time_limit',this.value);mgNote(${i})"></label>
         ${s.custom?'':`<button class="icon-btn" title="Done editing" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">check</span></button>`}${rm(i)}
       </div>`:`
-      <div class="sg-title"><b>${escHtml(fmtStage({name:s.name,distance:s.distance,distance_unit:s.distance_unit}))} <span>· ${escHtml(s.shots)} shots${s.time_limit?` · ${escHtml(s.time_limit)} s`:''}</span></b>
+      <div class="sg-title"><b>${escHtml(fmtStage({name:s.name,distance:s.distance,distance_unit:s.distance_unit}))} <span>· ${escHtml(s.shots)} shots${s.time_limit?` · ${escHtml(limitText(s.time_limit))}`:''}</span></b>
         <button class="icon-btn" title="Edit stage" onclick="mgToggleEdit(${i})"><span class="mi material-icons-round" style="font-size:18px">edit</span></button>${rm(i)}
       </div>`;
     return `
@@ -3812,9 +3812,6 @@ async function saveMatch(){
     if(s.score!==''&&(+s.score<0||+s.score>s.shots*10)){ snack(`"${s.name}": score must be 0–${s.shots*10}`,'err'); return; }
     if(s.x_count!==''&&(+s.x_count<0||+s.x_count>+s.shots)){ snack(`"${s.name}": X count can't exceed ${s.shots}`,'err'); return; }
   }
-  for(const s of matchStages){
-    if(s.time_limit!==''&&s.time_limit!=null&&!(+s.time_limit>=1)){ snack(`"${s.name}": the time limit must be at least 1 second, or blank`,'err'); return; }
-  }
   const course=allCourses.find(c=>String(c.id)===document.getElementById('mg-course').value);
   const data={
     name, date:document.getElementById('mg-date').value, location:document.getElementById('mg-location').value,
@@ -3872,7 +3869,7 @@ function renderCourseStages(){
       <label class="sg-f" style="width:84px"><span>Distance</span><input class="sg-in" type="number" min="0" value="${escHtml(s.distance==null?'':s.distance)}" oninput="ccSet(${i},'distance',this.value)"></label>
       <label class="sg-f" style="width:62px"><span>Unit</span><select class="sg-in" onchange="ccSet(${i},'distance_unit',this.value)"><option value="yd"${s.distance_unit!=='m'?' selected':''}>yd</option><option value="m"${s.distance_unit==='m'?' selected':''}>m</option></select></label>
       <label class="sg-f" style="width:70px"><span>Shots</span><input class="sg-in" type="number" min="1" value="${escHtml(s.shots)}" oninput="ccSet(${i},'shots',this.value)"></label>
-      <label class="sg-f" style="width:80px"><span>Limit (s)</span><input class="sg-in" type="number" min="1" inputmode="numeric" placeholder="none" value="${escHtml(s.time_limit==null?'':s.time_limit)}" oninput="ccSet(${i},'time_limit',this.value)"></label>
+      <label class="sg-f" style="width:80px"><span>Limit</span><input class="sg-in" type="text" title="Seconds, or minutes like 20 min, or 1:30" placeholder="none" value="${escHtml(limitField(s.time_limit))}" oninput="ccSet(${i},'time_limit',this.value)"></label>
       <button class="icon-btn" title="Move up" onclick="ccMove(${i},-1)"${i?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_upward</span></button>
       <button class="icon-btn" title="Move down" onclick="ccMove(${i},1)"${i<courseStages.length-1?'':' disabled'}><span class="mi material-icons-round" style="font-size:18px">arrow_downward</span></button>
       <button class="icon-btn" title="Remove stage" onclick="ccRemove(${i})" style="color:var(--err)"><span class="mi material-icons-round" style="font-size:18px">close</span></button>
@@ -4396,6 +4393,16 @@ function fmtSec(sec){
   if(sec>=120){ const m=Math.floor(sec/60), r=Math.round(sec-m*60); return `${m} m ${r<10?'0':''}${r} s`; }
   return `${sec.toFixed(1)} s`;
 }
+// A stage limit in seconds, as people say it: "60 s", "20 min", "2 m 05 s"
+function fmtLimit(n){
+  n=+n;
+  if(n<120) return `${n} s`;
+  const m=Math.floor(n/60), r=n-m*60;
+  return r?`${m} m ${r<10?'0':''}${r} s`:`${m} min`;
+}
+// What the limit box shows and what the server reads back: a bare number is seconds, "20 min" is minutes
+function limitField(v){ if(typeof v!=='number') return v==null?'':v; return v>=120&&v%60===0?`${v/60} min`:String(v); }
+function limitText(v){ return typeof v==='number'?fmtLimit(v):(v?String(v):''); }
 // Against a stage limit: only "over" can be stated, since the time to the first shot is unknown
 function timingVerdict(seconds,limit){
   return limit&&seconds>limit?{over:true,by:seconds-limit}:null;
@@ -4412,19 +4419,19 @@ function timingSpans(t,limit,expected){
   let over=false;
   t.strings.forEach((s,i)=>{
     const v=timingVerdict(s.seconds,limit);
-    if(v){ over=true; h+=`<span ${err}>${multi?'String '+(i+1)+' over':'Over'} the ${limit} s limit by ${fmtSec(v.by)} before counting the time to the first shot</span>`; }
+    if(v){ over=true; h+=`<span ${err}>${multi?'String '+(i+1)+' over':'Over'} the ${fmtLimit(limit)} limit by ${fmtSec(v.by)} before counting the time to the first shot</span>`; }
   });
-  if(limit&&!over) h+=`<span>Stage limit <b>${limit} s</b>${multi?' per string':''}</span>`;
+  if(limit&&!over) h+=`<span>Stage limit <b>${fmtLimit(limit)}</b>${multi?' per string':''}</span>`;
   return h;
 }
 // One line for a match stage linked to a session: "54.2 s first to last shot · limit 60 s"
 // seconds is one time, or a list with a time per string
 function timingNote(seconds,limit){
   const lim=+limit||0;
-  if(seconds==null||seconds===''||(Array.isArray(seconds)&&!seconds.length)){ return lim?`Limit ${lim} s`:''; }
+  if(seconds==null||seconds===''||(Array.isArray(seconds)&&!seconds.length)){ return lim?`Limit ${fmtLimit(lim)}`:''; }
   const times=(Array.isArray(seconds)?seconds:[seconds]).map(Number), over=timesOver(times,lim);
   let t=times.map(fmtSec).join(' + ')+(times.length>1?' per string, first to last shot':' first to last shot');
-  if(lim) t+=over?` · over the ${lim} s limit`:` · limit ${lim} s`;
+  if(lim) t+=over?` · over the ${fmtLimit(lim)} limit`:` · limit ${fmtLimit(lim)}`;
   return t;
 }
 function timesOver(times,lim){ return !!lim&&times.some(x=>timingVerdict(+x,lim)); }

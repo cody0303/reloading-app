@@ -50,7 +50,7 @@ function runTests(scripts) {
   }
   const f = load(['scoreOf', 'parseTwist', 'hmsToSec', 'mmToAngular', 'shotShort', 'shotName', 'pearson',
                   'pfPlanFromOffset', 'pfChronoBestOffset', 'pfChronoTimeMatch', 'pfChronoRecommend', 'pfTimingDisagrees', 'escHtml', 'chronoStats', 'importScore',
-                   'groupCenter', 'centerText', 'stringTiming', 'fmtSec', 'timingVerdict', 'timingSpans', 'timingNote', 'timesOver']);
+                   'groupCenter', 'centerText', 'stringTiming', 'fmtSec', 'timingVerdict', 'timingSpans', 'timingNote', 'timesOver', 'fmtLimit', 'limitField', 'limitText']);
 
   // Group center: where the middle of the ticked shots sits against the point of aim
   const gc = f.groupCenter([{ x_mm: 10, y_mm: -20 }, { x_mm: 30, y_mm: -40 }, { x_mm: null, y_mm: 5 }]);
@@ -103,6 +103,13 @@ function runTests(scripts) {
   check('a stage line lists the string times and goes red when any one is over',
         f.timingNote([12, 12], 60) === '12.0 s + 12.0 s per string, first to last shot · limit 60 s' && /over the 60 s limit/.test(f.timingNote([12, 63], 60))
         && f.timesOver([12, 63], 60) && !f.timesOver([12, 60], 60) && !f.timesOver([99], null) && f.timingNote([], 60) === 'Limit 60 s');
+
+  check('limits read the way people say them: seconds, whole minutes, or minutes and seconds',
+        f.fmtLimit(60) === '60 s' && f.fmtLimit(90) === '90 s' && f.fmtLimit(1200) === '20 min' && f.fmtLimit(125) === '2 m 05 s' && f.fmtLimit(190) === '3 m 10 s');
+  check('the limit box shows whole minutes as "20 min" and anything else as plain seconds, and leaves typed text alone',
+        f.limitField(1200) === '20 min' && f.limitField(60) === '60' && f.limitField(125) === '125' && f.limitField(null) === '' && f.limitField('20m') === '20m'
+        && f.limitText(1200) === '20 min' && f.limitText('1:30') === '1:30' && f.limitText('') === '');
+  check('a 20 minute stage names its limit in minutes in the timing row', /Stage limit <b>20 min<\/b>/.test(f.timingSpans(f.stringTiming([{ ts: 0 }, { ts: 54200 }]), 1200)));
 
   // Import screens: the device's own score next to a total for the ticked shots, sighters never counted
   const imp = { face_id: 'NRA_MR1', group_text: '191-5X', shots: SM_SCORES.map((s, i) => ({ score: s, sighter: i < 2 })) };
