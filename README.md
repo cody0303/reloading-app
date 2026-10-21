@@ -16,6 +16,7 @@ back, a single-page vanilla JS front end, no build step.
   - Sessions with Garmin data but no ShotMarker string open a speed scatter plot (average and ±1 SD) in place of the target.
 - **Matches** – score tracking by course of fire.
   - Pick a course and its stages are copied into the match (editing a course later never changes matches already entered). Enter a score and an X count per stage by hand, or link a Performance session to the stage to fill them from its ShotMarker score. Scores read like ShotMarker's, for example `95-3X`.
+  - The arrow on each match in the list expands its stages: score, string times against the limit, and a button that opens a linked session's shots without going into the editor.
   - Linking sessions also fills in the match date and the rifle. "Link sessions by date" pairs sessions within a day of the match with stages by distance, and the session pickers list sessions near the match date first. A session belongs to at most one match.
   - **Records** view: personal bests per stage, course averages and trends. The stage section has course chips (the pick is remembered), and stages sort by distance and then firing order. A best that came from a saved session has a button that opens that session's shots.
 - **Settings** – theme, units, label contents, courses of fire (add, edit, reorder stages; six Highpower and mid-range courses are seeded to start with), backup, and the running version.
