@@ -32,7 +32,7 @@ jobs:
         run: |
           tar -cf reloading-app_${{ steps.ver.outputs.num }}.tar \
             app.py sm_decode.py requirements.txt Dockerfile \
-            docker-compose.yml nginx.conf static/
+            docker-compose.yml static/
           sha256sum reloading-app_${{ steps.ver.outputs.num }}.tar | tee sha256.txt
 
       - name: Create GitHub release

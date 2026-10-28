@@ -31,9 +31,8 @@ reloading-app/
 ├── sm_decode.py                   # ShotMarker export decoder (tar → shots, scores, timestamps)
 ├── requirements.txt               # flask, gunicorn, reportlab
 ├── Dockerfile                     # python:3.12-slim image; APP_VERSION build arg
-├── docker-compose.yml             # Full stack: app + nginx + Cloudflare Tunnel (built from source)
+├── docker-compose.yml             # Full stack: app + Cloudflare Tunnel (built from source)
 ├── docker-compose.portainer.yml   # App only, pulls a pinned image from GHCR (used by Portainer)
-├── nginx.conf
 ├── static/
 │   ├── index.html                 # The whole front end
 │   └── faces.js                   # Target-face ring tables, the one copy: the page loads it, and app.py reads it to re-score shots
@@ -96,8 +95,10 @@ Portainer's polling job can stall without logging an error. Check the `deploy` b
 ### Building from source instead
 
 ```bash
-docker compose up -d --build     # app + nginx + cloudflared (needs TUNNEL_TOKEN in the environment)
+docker compose up -d --build     # app + cloudflared (needs TUNNEL_TOKEN in the environment)
 ```
+
+This stack has no login of its own. In the Cloudflare dashboard, point the tunnel's public hostname at `http://reloading-app:5000`, and put Cloudflare Access or similar in front of it.
 
 Without a tunnel, use the Portainer compose file or add a `ports:` mapping to the app service.
 
