@@ -6,4 +6,6 @@ __pycache__/
 .git/
 .github/
 tests/
-.env
+inbox/
+.claude/
+.devcontainer/

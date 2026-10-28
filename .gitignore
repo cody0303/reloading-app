@@ -1,2 +1,13 @@
+# Python
 __pycache__/
 *.pyc
+
+# Local tools and scratch files
+.claude/settings.local.json
+.devcontainer/
+inbox/
+
+# Secrets and data
+.env
+*.db
+*.sqlite
